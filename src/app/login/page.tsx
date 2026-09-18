@@ -1,0 +1,3 @@
+import { DemoBanner } from '@/components/DemoBanner'
+
+export default function LoginPage(){return <><DemoBanner/><section className="section card" style={{maxWidth:520,marginInline:'auto'}}><div className="eyebrow">ACCOUNT ACCESS</div><h1>Sign in</h1><p className="muted">Production sign-in uses Supabase Auth when configured. Demo Mode is available without an account.</p><form action="/auth/sign-in" method="post"><label>Email<input name="email" type="email" required placeholder="you@example.com" /></label><label>Password<input name="password" type="password" required /></label><button className="btn" type="submit">Sign in</button></form><p className="muted">For first setup, use the Supabase dashboard to enable your chosen sign-in methods.</p></section></>}

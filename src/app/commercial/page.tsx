@@ -1,0 +1,5 @@
+import { DemoBanner } from '@/components/DemoBanner'
+import { launchHypotheses, economicsFlag } from '@/lib/domain/pricing'
+import { money } from '@/lib/config'
+
+export default function CommercialPage(){const revenue=175000,cost=38000;return <><DemoBanner/><section className="section"><div className="eyebrow">COMMERCIAL CONTROL</div><h1>Configurable pricing and cost economics</h1><p className="muted">Values are launch hypotheses / demo configuration, not current market guarantees.</p></section><section className="grid">{launchHypotheses.map(p=><div className="card" key={p.code}><h2>{p.name}</h2><div className="metric-value">{money(p.monthlyMinor)}</div><p>{p.includedTrustEvents} included Trust Events in demo configuration.</p><p className="muted">{p.notes}</p></div>)}</section><section className="section card"><h2>Direct-cost target</h2><p>Demo revenue {money(revenue)} · direct cost {money(cost)} · ratio {(cost/revenue*100).toFixed(1)}%</p><p><strong>{economicsFlag(revenue,cost)}</strong></p></section></>}
