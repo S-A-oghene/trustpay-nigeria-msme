@@ -1,108 +1,67 @@
 import { notFound } from 'next/navigation'
 import { DemoBanner } from '@/components/DemoBanner'
+import { Icon } from '@/components/Icon'
 import { StatusPill } from '@/components/StatusPill'
 import { demoStore } from '@/lib/demo/store'
-import { appConfig } from '@/lib/config'
 
-const lifecycle = [
-  'REQUESTED',
-  'OPENED',
-  'UPLOADED',
-  'RECEIVED',
-  'VALIDATING',
-  'VALIDATED',
-  'VERIFIED',
-  'ACCEPTED',
-] as const
+const stages = ['REQUESTED', 'OPENED', 'UPLOADED', 'RECEIVED', 'VALIDATING', 'VALIDATED', 'VERIFIED', 'ACCEPTED'] as const
 
-export default async function DocumentPage({
-  params,
-}: {
-  params: Promise<{ token: string }>
-}) {
+export default async function DocumentPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
-
-  if (!appConfig.demoMode) {
-    notFound()
-  }
-
-  const document = demoStore().documents.find((item) => item.publicToken === token)
-
-  if (!document) {
-    notFound()
-  }
-
-  const currentIndex = lifecycle.indexOf(document.status as (typeof lifecycle)[number])
+  const doc = demoStore().documents.find(x => x.publicToken === token)
+  if (!doc) notFound()
+  const currentIndex = stages.indexOf(doc.status as typeof stages[number])
 
   return (
     <>
       <DemoBanner />
-
-      <section className="section card">
-        <div className="eyebrow">DOCUMENTCHASER · SECURE LINK</div>
-        <h1>{document.title}</h1>
-        <p>
-          Requested from: <strong>{document.requestedFrom}</strong>
-        </p>
-        <p>Why: {document.reason}</p>
-        <p>Due: {new Date(document.dueAt).toLocaleString('en-GB')}</p>
-
-        <StatusPill
-          label={document.status}
-          tone={
-            document.status === 'ACCEPTED' || document.status === 'VERIFIED'
-              ? 'good'
-              : document.status === 'EXPIRED' || document.status === 'REJECTED'
-                ? 'bad'
-                : 'warn'
-          }
-        />
+      <section className="page-head">
+        <div>
+          <div className="eyebrow">DOCUMENTCHASER · SECURE LINK</div>
+          <h1>{doc.title}</h1>
+          <p className="page-head-copy">Requested from <strong>{doc.requestedFrom}</strong> to help <strong>{doc.reason}</strong>. Due {new Date(doc.dueAt).toLocaleString('en-GB')}.</p>
+        </div>
+        <div className="page-head-actions"><StatusPill label={doc.status} tone={doc.status === 'ACCEPTED' || doc.status === 'VERIFIED' ? 'good' : doc.status === 'EXPIRED' || doc.status === 'REJECTED' ? 'bad' : 'warn'} /></div>
       </section>
 
-      <section className="section grid-2">
-        <div className="card">
-          <h2>Lifecycle</h2>
-
+      <section className="grid-12">
+        <article className="surface">
+          <div className="section-head"><div><div className="eyebrow">LIFECYCLE</div><h2>Evidence moves in steps</h2></div></div>
           <div className="timeline">
-            {lifecycle.map((state, index) => (
-              <div className="timeline-item" key={state}>
-                <div>{state}</div>
+            {stages.map((stage, index) => (
+              <div className="timeline-item" key={stage}>
+                <div className={`timeline-dot ${index < currentIndex ? 'good' : index === currentIndex ? 'warn' : ''}`} />
                 <div>
-                  {document.status === state ? (
-                    <StatusPill label="CURRENT" tone="good" />
-                  ) : index < currentIndex ? (
-                    <span className="muted">Completed in a prior step</span>
-                  ) : (
-                    <span className="muted">Not reached</span>
-                  )}
+                  <div className="timeline-item-title">{stage}</div>
+                  <div className="timeline-item-copy">
+                    {index === currentIndex ? 'CURRENT STATE' : index < currentIndex ? 'Completed in a prior step' : 'Not reached'}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </article>
 
-        <div className="card">
-          <h2>Submission boundary</h2>
-          <p className="muted">
-            A document can be uploaded without proving its contents are true.
-            Validation checks basic structure/security; verification is a separate evidence-backed decision.
-          </p>
-
-          {document.fileName && (
-            <div className="success">
-              <strong>Artifact received:</strong> {document.fileName}
-              <br />
-              Hash recorded: {document.artifactHash}
-            </div>
-          )}
-
-          <div className="actions">
-            <a className="btn" href={`/api/demo/document?token=${token}`}>
-              Inspect simulated document state
-            </a>
-          </div>
+        <div className="grid">
+          <article className="surface">
+            <div className="eyebrow">SUBMISSION BOUNDARY</div>
+            <h3 className="sp-3">Upload is not verification.</h3>
+            <p className="muted-tight sp-2">Validation checks basic structure/security. Verification is a separate evidence-backed decision.</p>
+          </article>
+          <article className="surface">
+            <div className="eyebrow">ARTIFACT</div>
+            <h3 className="sp-3">{doc.fileName || 'No artifact received'}</h3>
+            {doc.fileName && <p className="muted-tight sp-2">Hash recorded: {doc.artifactHash}</p>}
+            <div className={doc.fileName ? 'success sp-3' : 'warning sp-3'}>{doc.fileName ? 'Artifact received in simulation.' : 'No artifact has been submitted in this case.'}</div>
+            <div className="actions"><a className="btn secondary compact" href={`/api/demo/document?token=${token}`}>Inspect simulated state <Icon name="arrow-up-right" size={14} /></a></div>
+          </article>
         </div>
       </section>
+
+      <div className="sticky-bottom">
+        <div className="sticky-bottom-copy"><strong>Next action</strong><span>{doc.status === 'UPLOADED' ? 'Validate, then decide whether the evidence can be verified.' : 'Follow the lifecycle until the required evidence state is established.'}</span></div>
+        <StatusPill label={doc.status} tone={doc.status === 'UPLOADED' ? 'warn' : 'info'} />
+      </div>
     </>
   )
 }
