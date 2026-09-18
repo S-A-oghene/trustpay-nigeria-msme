@@ -116,19 +116,28 @@ jobs:
             echo "${result}"
           done
 
-          exit 0
-
-      - name: Commit repaired repository and remove this one-time workflow
+      - name: Commit repaired repository files
         shell: bash
         run: |
           set -euo pipefail
+
           git config user.name "trustpay-repair-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm -f .github/workflows/trustpay-one-time-repair.yml
-          git add -A
+
+          rm -f tsconfig.tsbuildinfo
+
+          git add -A -- . ':(exclude).github/workflows/*'
+
+          echo "=============================="
+          echo "FILES STAGED FOR PUSH"
+          echo "=============================="
+
+          git status --short
+
           if git diff --cached --quiet; then
-            echo "No repository changes were produced."
+            echo "No non-workflow repository changes were produced."
             exit 0
           fi
+
           git commit -m "fix: consolidate TrustPay repository repairs"
           git push
