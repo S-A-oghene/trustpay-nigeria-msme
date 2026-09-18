@@ -3,6 +3,11 @@ import type { NextConfig } from 'next'
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+
+  // Playwright runs the app on 127.0.0.1 in CI. Next.js 16 blocks
+  // dev-resource requests from that loopback origin unless it is explicitly allowed.
+  allowedDevOrigins: ['127.0.0.1'],
+
   experimental: {
     optimizePackageImports: [],
   },
