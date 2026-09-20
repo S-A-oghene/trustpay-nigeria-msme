@@ -12,8 +12,8 @@ const requiredTables=[
 ];
 
 for(const table of requiredTables){
-  assert.match(sql,new RegExp('create\\s+table\\s+public\\.'+table+'\\s*\\(','i'),\`missing table: \${table}\`);
-  assert.match(sql,new RegExp('alter\\s+table\\s+public\\.'+table+'\\s+enable\\s+row\\s+level\\s+security','i'),\`RLS not enabled: \${table}\`);
+  assert.match(sql,new RegExp('create\\s+table\\s+public\\.'+table+'\\s*\\(','i'),`missing table: ${table}`);
+  assert.match(sql,new RegExp('alter\\s+table\\s+public\\.'+table+'\\s+enable\\s+row\\s+level\\s+security','i'),`RLS not enabled: ${table}`);
 }
 
 const policyExpectations={
@@ -44,7 +44,7 @@ assert.match(sql,/create\s+policy\s+"tenant members can read tenant"\s+on\s+publ
 assert.match(sql,/create\s+policy\s+"memberships are self visible"\s+on\s+public\.memberships\s+for\s+select\s+using\s+\(user_id = auth\.uid\(\) or public\.is_tenant_member\(tenant_id\)\)/i);
 
 for(const [table,needle] of Object.entries(policyExpectations)){
-  assert.match(sql,new RegExp('create\\s+policy[^\\n]*on\\s+public\\.'+table+'[^\\n]*'+needle,'i'),\`tenant isolation policy missing: \${table}\`);
+  assert.match(sql,new RegExp('create\\s+policy[^\\n]*on\\s+public\\.'+table+'[^\\n]*'+needle,'i'),`tenant isolation policy missing: ${table}`);
 }
 
 assert.match(sql,/create\s+or\s+replace\s+function\s+public\.is_tenant_member\(target_tenant\s+uuid\)[\s\S]*?security\s+definer/i);
@@ -72,4 +72,4 @@ assert.match(sql,/create\s+policy\s+"private docs tenant scoped"\s+on\s+storage\
 assert.match(sql,/create\s+policy\s+"private docs tenant upload"\s+on\s+storage\.objects\s+for\s+insert\s+to\s+authenticated/i);
 
 console.log('TrustPay R1 schema/RLS adversarial validation: PASS');
-console.log(\`Validated \${requiredTables.length} tables, specialized tenant policies, public RPC boundaries, idempotency/uniqueness controls, audit append policy, and private storage.\`);
+console.log(`Validated ${requiredTables.length} tables, specialized tenant policies, public RPC boundaries, idempotency/uniqueness controls, audit append policy, and private storage.`);
