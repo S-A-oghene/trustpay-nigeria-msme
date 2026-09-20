@@ -1,11 +1,11 @@
 # V2 Release Chain Status
 
-Last verified: 2026-09-20T00:12Z
+Last verified: 2026-09-20T00:26Z
 
 | Release | State | Evidence / blocker |
 |---|---|---|
 | R0 | COMPLETE | Specification/branch execution baseline established. |
-| R1 | IN EXECUTION | V2 CI workflow, commerce-control primitives, reconciliation, ledger balance invariant and term versioning are committed to branch `v2.0.0-execution-r1`. |
+| R1 | IN EXECUTION | Cloud gate #43 is running the active TrustPay CI with lockfile install, security audit, typechecks, lint, unit/integration tests, core smoke, V2 smoke, R1 schema/RLS adversarial validation, build and browser E2E. Vercel preview check is also pending. |
 | R2 | BLOCKED | Requires successful cloud validation and database migration evidence. |
 | R3 | BLOCKED | Requires verified AP/AR persistence and tests. |
 | R4 | BLOCKED | Requires approval/segregation-of-duties evidence. |
@@ -27,27 +27,27 @@ Current main baseline observed before V2 branch: `0a6619fbfeadbb506cefd2de62ae5e
 
 Execution branch: `v2.0.0-execution-r1`
 
-Current branch HEAD: `43a0d2399d357292c95ceba50c96dd78d91073e0`
+Current branch HEAD: `c8e3d46ae3ff5d36bb504052d148f756422f0f08`
 
-Immediate parent of HEAD: `46f9e8767c179e7446a64ccfe5134894a7b779d4`
+Immediate parent of HEAD: `c96a469972d9d8a7b733065a3014e1cee26cdeb6`
 
-Branch comparison against `main`: ahead by 8 commits, behind by 0.
+Branch comparison against `main`: ahead by 16 commits, behind by 0.
 
 The branch contains `.github/workflows/ci-v2.yml`.
 
-The V2 workflow performs checkout, Node 22 setup, `npm ci`, repository verification, typecheck, tests and build.
+The active `TrustPay CI` workflow performs checkout, Node 22 setup, npm 11.19.1, `npm ci`, security audit, repository verification, core/static/full typechecks, lint, unit/integration tests, core smoke, V2 smoke, R1 schema/RLS adversarial validation, production build and browser E2E.
 
 ## Status evidence
 
-The GitHub combined-status API currently reports the **Vercel** check as `success` for both the 46f9 and current 43a0 commits.
+The GitHub combined-status API currently reports the **Vercel** check as `pending` for the current R1 head `c8e3d46ae3ff5d36bb504052d148f756422f0f08`.
 
 That status is evidence of a successful Vercel check; it is **not** by itself a claim that the application has passed the full V2 release gate or that production deployment is certified.
 
-The connected GitHub workflow-run endpoint available in this execution environment did not return a corresponding Actions run for the commits at verification time, so GitHub Actions CI is not marked passed here.
+The connected GitHub workflow-run endpoint now exposes **TrustPay CI #43** for the current R1 head; it has progressed through lockfile installation, security audit and all typechecks, and is currently executing lint. Final conclusion is not yet available.
 
 ## Local execution boundary
 
-The execution container does not contain the installed npm dependency tree and could not resolve the npm registry. Therefore the dependency-backed `npm test` / `npm build` results are not claimed as passed locally.
+The local execution container still cannot resolve the npm registry, so cloud CI is the authoritative dependency-backed execution for R1; local work is limited to deterministic source validation where possible.
 
 Deterministic repository/core validation performed in the build environment is recorded separately in the build package evidence.
 
