@@ -1,0 +1,309 @@
+name: TrustPay R1 Release Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      preview_url:
+        description: "Exact Vercel Preview URL for the current R1 deployment"
+        required: true
+        type: string
+
+      apply_remote_migrations:
+        description: "Apply repository migrations to the configured TrustPay Supabase project"
+        required: true
+        type: boolean
+        default: false
+
+      confirm_target:
+        description: "Type TRUSTPAY-R1-SUPABASE-APPLY only when intentionally applying migrations"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: trustpay-r1-release-gate
+  cancel-in-progress: true
+
+env:
+  R1_BRANCH: v2.0.0-execution-r1
+  NODE_VERSION: "22"
+
+jobs:
+  release-gate:
+    name: TrustPay R1 Complete Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout R1 branch
+        uses: actions/checkout@v4
+        with:
+          ref: v2.0.0-execution-r1
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify R1 branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Expected branch: ${R1_BRANCH}"
+          echo "Checked-out commit:"
+          git rev-parse HEAD
+
+          echo "Recent commits:"
+          git log -3 --oneline
+
+          test -f package.json || {
+            echo "::error::package.json was not found."
+            exit 1
+          }
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies from lockfile
+        run: npm ci
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+
+      - name: Core typecheck
+        run: npm run typecheck:core --if-present
+
+      - name: Static typecheck
+        run: npm run typecheck:static --if-present
+
+      - name: Application typecheck
+        run: npm run typecheck --if-present
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Unit and integration tests
+        run: npm run test --if-present
+
+      - name: Core smoke
+        run: npm run test:core --if-present
+
+      - name: V2 deterministic smoke
+        run: node scripts/v2-smoke.cjs
+
+      - name: Production build
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        if: hashFiles('playwright.config.*') != ''
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser E2E
+        if: hashFiles('playwright.config.*') != ''
+        run: npm run e2e
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Check required Supabase secrets
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+
+          test -n "${SUPABASE_ACCESS_TOKEN:-}" || {
+            echo "::error::SUPABASE_ACCESS_TOKEN is missing."
+            exit 1
+          }
+
+          test -n "${SUPABASE_DB_PASSWORD:-}" || {
+            echo "::error::SUPABASE_DB_PASSWORD is missing."
+            exit 1
+          }
+
+          test -n "${SUPABASE_PROJECT_ID:-}" || {
+            echo "::error::SUPABASE_PROJECT_ID is missing."
+            exit 1
+          }
+
+          echo "Supabase secret preflight: PASS"
+
+      - name: Link TrustPay Supabase project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+
+          supabase link \
+            --project-ref "${SUPABASE_PROJECT_ID}" \
+            --password "${SUPABASE_DB_PASSWORD}"
+
+      - name: Show Supabase migration state
+        run: supabase migration list
+
+      - name: Supabase migration dry run
+        run: supabase db push --dry-run
+
+      - name: Apply Supabase migrations
+        if: ${{ inputs.apply_remote_migrations }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ inputs.confirm_target }}" != "TRUSTPAY-R1-SUPABASE-APPLY" ]]; then
+            echo "::error::Migration application was requested but the exact confirmation text was not supplied."
+            exit 1
+          fi
+
+          supabase db push
+
+      - name: Confirm final Supabase migration state
+        run: supabase migration list
+
+      - name: Database lint
+        run: supabase db lint
+
+      - name: Protected Vercel Preview smoke
+        env:
+          PREVIEW_URL: ${{ inputs.preview_url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "${PREVIEW_URL:-}" || {
+            echo "::error::preview_url was not provided."
+            exit 1
+          }
+
+          test -n "${VERCEL_AUTOMATION_BYPASS_SECRET:-}" || {
+            echo "::error::VERCEL_AUTOMATION_BYPASS_SECRET is missing."
+            exit 1
+          }
+
+          python3 - <<'PY'
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          url = os.environ["PREVIEW_URL"].rstrip("/") + "/"
+          secret = os.environ["VERCEL_AUTOMATION_BYPASS_SECRET"]
+
+          request = urllib.request.Request(
+              url,
+              method="GET",
+              headers={
+                  "x-vercel-protection-bypass": secret,
+                  "x-vercel-set-bypass-cookie": "true",
+                  "User-Agent": "TrustPay-R1-Preview-Smoke/1.0",
+              },
+          )
+
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  final_url = response.geturl()
+                  body = response.read(50000).decode("utf-8", "replace")
+
+                  print("HTTP_STATUS=" + str(response.status))
+                  print("FINAL_URL=" + final_url)
+
+                  if "vercel.com/login" in final_url:
+                      print("FAIL: Vercel authentication page reached.")
+                      sys.exit(1)
+
+                  if not 200 <= response.status < 400:
+                      print("FAIL: unexpected HTTP status.")
+                      sys.exit(1)
+
+                  if "TrustPay" not in body:
+                      print("FAIL: response does not appear to be the TrustPay application.")
+                      sys.exit(1)
+
+                  print("PASS: protected TrustPay Preview is reachable.")
+
+          except urllib.error.HTTPError as exc:
+              print("HTTP_ERROR=" + str(exc.code))
+              print(exc.read(4000).decode("utf-8", "replace"))
+              sys.exit(1)
+
+          except urllib.error.URLError as exc:
+              print("NETWORK_ERROR=" + str(exc))
+              sys.exit(1)
+          PY
+
+      - name: Record R1 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p .r1-evidence
+
+          R1_SHA="$(git rev-parse HEAD)"
+
+          {
+            echo "TRUSTPAY R1 RELEASE EVIDENCE"
+            echo "UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "R1_BRANCH=${R1_BRANCH}"
+            echo "R1_SHA=${R1_SHA}"
+            echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
+            echo "RUN_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "PREVIEW_URL=${{ inputs.preview_url }}"
+            echo "REMOTE_MIGRATIONS_APPLIED=${{ inputs.apply_remote_migrations }}"
+          } > .r1-evidence/context.txt
+
+      - name: Upload R1 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: trustpay-r1-evidence-${{ github.run_id }}
+          path: .r1-evidence/
+
+      - name: Create R1 certification tag
+        if: ${{ success() && inputs.apply_remote_migrations }}
+        uses: actions/github-script@v7
+        env:
+          R1_BRANCH: v2.0.0-execution-r1
+        with:
+          script: |
+            const tag = "v2.0.0-r1";
+
+            const { execSync } = require("child_process");
+            const r1Sha = execSync("git rev-parse HEAD").toString().trim();
+
+            try {
+              await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${tag}`,
+              });
+
+              core.setFailed(`Tag ${tag} already exists. No existing release tag will be overwritten.`);
+              return;
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${tag}`,
+              sha: r1Sha,
+            });
+
+            core.notice(`R1 certification tag ${tag} created at R1 commit ${r1Sha}.`);
