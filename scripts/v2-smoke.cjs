@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const assert=require('node:assert/strict')
 function reconcile(e,a){if(!a)return'MISSING';if(a.amountMinor===e.amountMinor&&a.currency===e.currency&&a.destinationRef===e.destinationRef)return'MATCHED';if(a.amountMinor===e.amountMinor&&a.currency===e.currency)return'PARTIAL';return'MISMATCH'}
 function assertBalanced(es){const d=es.reduce((n,e)=>n+e.debit,0),c=es.reduce((n,e)=>n+e.credit,0);if(d!==c)throw new Error('LEDGER_NOT_BALANCED')}
