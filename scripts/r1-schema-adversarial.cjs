@@ -14,11 +14,33 @@ for(const table of requiredTables){
   assert.match(sql,new RegExp('alter\\s+table\\s+public\\.'+table+'\\s+enable\\s+row\\s+level\\s+security','i'),`RLS not enabled: ${table}`);
 }
 
-const tenantTables=requiredTables.filter(t=>t!=='obligation_templates');
-for(const table of tenantTables){
-  assert.match(sql,new RegExp('tenant_id\\s+uuid[^;\\n]*', 'i'),`tenant_id declaration missing somewhere before policy scan: ${table}`);
-  const policyRe=new RegExp('create\\s+policy[^\\n]*on\\s+public\\.'+table+'[^\\n]*public\\.is_tenant_member\\(tenant_id\\)', 'i');
-  assert.match(sql,policyRe,`tenant membership policy missing: ${table}`);
+const policyExpectations={
+  people:'public\\.is_tenant_member\\(tenant_id\\)',
+  trading_identities:'public\\.is_tenant_member\\(tenant_id\\)',
+  payment_accounts:'public\\.is_tenant_member\\(tenant_id\\)',
+  orders:'public\\.is_tenant_member\\(tenant_id\\)',
+  order_versions:'public\\.is_tenant_member\\(o\\.tenant_id\\)',
+  payment_intents:'public\\.is_tenant_member\\(tenant_id\\)',
+  payment_events:'public\\.is_tenant_member\\(tenant_id\\)',
+  evidence:'public\\.is_tenant_member\\(tenant_id\\)',
+  audit_events:'public\\.is_tenant_member\\(tenant_id\\)',
+  documents:'public\\.is_tenant_member\\(tenant_id\\)',
+  obligations:'public\\.is_tenant_member\\(tenant_id\\)',
+  disputes:'public\\.is_tenant_member\\(tenant_id\\)',
+  communication_events:'public\\.is_tenant_member\\(tenant_id\\)',
+  provider_connections:'public\\.is_tenant_member\\(tenant_id\\)',
+  cost_ledger:'public\\.is_tenant_member\\(tenant_id\\)',
+  subscriptions:'public\\.is_tenant_member\\(tenant_id\\)',
+  evidence_links:'public\\.is_tenant_member\\(tenant_id\\)',
+  account_change_events:'public\\.is_tenant_member\\(tenant_id\\)',
+  consents:'public\\.is_tenant_member\\(tenant_id\\)',
+  risk_events:'public\\.is_tenant_member\\(tenant_id\\)',
+  idempotency_keys:'public\\.is_tenant_member\\(tenant_id\\)',
+};
+assert.match(sql,/create\\s+policy\s+"tenant members can read tenant"\s+on\s+public\.tenants\s+for\s+select\s+using\s+\(public\.is_tenant_member\(id\)\)/i);
+assert.match(sql,/create\\s+policy\s+"memberships are self visible"\s+on\s+public\.memberships\s+for\s+select\s+using\s+\(user_id = auth\.uid\(\) or public\.is_tenant_member\(tenant_id\)\)/i);
+for(const [table,needle] of Object.entries(policyExpectations)){
+  assert.match(sql,new RegExp('create\\s+policy[^\\n]*on\\s+public\\.'+table+'[^\\n]*'+needle,'i'),`tenant isolation policy missing: ${table}`);
 }
 
 assert.match(sql,/create\s+or\s+replace\s+function\s+public\.is_tenant_member\(target_tenant\s+uuid\)[\s\S]*?security\s+definer/i);
