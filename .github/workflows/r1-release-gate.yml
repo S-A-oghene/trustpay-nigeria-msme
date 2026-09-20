@@ -44,18 +44,15 @@ jobs:
 
       R1_BRANCH: v2.0.0-execution-r1
 
-      # Keep the application's tested Node.js version at 22.
-      # The GitHub Actions wrappers themselves use current
-      # Node 24-compatible action releases below.
+      # TrustPay application runtime.
+      # This remains Node 22.
       NODE_VERSION: "22"
 
       # ======================================================
       # SUPABASE
       #
-      # These are JOB-LEVEL variables.
-      #
-      # Every Supabase CLI step therefore receives the
-      # credentials without relying on step-local scope.
+      # These are JOB-LEVEL variables so every Supabase CLI
+      # step receives the required credentials.
       # ======================================================
 
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -71,25 +68,36 @@ jobs:
       VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
 
       # ======================================================
-      # KNOWN BASELINE MIGRATION
+      # KNOWN R1 BASELINE MIGRATION
       # ======================================================
 
       R1_BASELINE_MIGRATION: "20260918000000"
+
+      # ======================================================
+      # KNOWN R1 STORAGE BOOTSTRAP POLICY
+      #
+      # The initial migration intentionally creates the private
+      # document bucket using idempotent metadata SQL:
+      #
+      # INSERT ... ON CONFLICT (id) DO NOTHING
+      #
+      # This is allowed ONLY for storage.buckets metadata.
+      #
+      # Ordinary application-data INSERT/UPDATE/DELETE/COPY/MERGE
+      # statements remain blocked from automatic migration-history
+      # repair.
+      # ======================================================
+
+      R1_STORAGE_BUCKET_NAMESPACE: "storage.buckets"
 
     steps:
 
       # ======================================================
       # 1. CHECK OUT R1
       #
-      # Important:
+      # The workflow may be started manually from main.
       #
-      # The workflow may be manually started from main, but
-      # the code actually tested MUST be the R1 execution
-      # branch.
-      #
-      # fetch-depth: 0 gives us complete history, branches,
-      # and tags so that the final certification-tag check
-      # can resolve exact commit identities safely.
+      # The code actually tested MUST be the R1 execution branch.
       # ======================================================
 
       - name: Checkout R1 branch
@@ -100,10 +108,33 @@ jobs:
           persist-credentials: true
 
       # ======================================================
-      # 2. VERIFY R1 BRANCH AND EXACT COMMIT
+      # 2. INITIALIZE EVIDENCE DIRECTORY
       #
-      # This prevents a future accidental run from testing
-      # some other branch/ref while believing it is testing R1.
+      # This happens immediately so that the evidence upload
+      # step always has something to upload even when a later
+      # validation step fails.
+      # ======================================================
+
+      - name: Initialize R1 evidence directory
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p .r1-evidence
+
+          echo "R1 evidence directory initialized."
+          echo "Repository: ${GITHUB_REPOSITORY}"
+          echo "Workflow run: ${GITHUB_RUN_ID}"
+          echo "Run URL: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+      # ======================================================
+      # 3. VERIFY R1 BRANCH AND EXACT COMMIT
+      #
+      # We compare the checked-out HEAD with the current remote
+      # tip of the R1 execution branch.
+      #
+      # This prevents the gate from accidentally testing another
+      # branch/ref while believing it is testing R1.
       # ======================================================
 
       - name: Verify R1 branch and commit
@@ -116,15 +147,19 @@ jobs:
 
           echo
 
-          echo "Actual checked-out commit:"
           ACTUAL_SHA="$(git rev-parse HEAD)"
+
+          echo "Actual checked-out commit:"
           echo "${ACTUAL_SHA}"
 
           echo
 
-          echo "Expected remote R1 branch commit:"
+          echo "Fetching remote R1 branch..."
           git fetch origin "${R1_BRANCH}" --prune --no-tags
+
           EXPECTED_SHA="$(git rev-parse "origin/${R1_BRANCH}")"
+
+          echo "Expected remote R1 branch commit:"
           echo "${EXPECTED_SHA}"
 
           echo
@@ -155,14 +190,21 @@ jobs:
             exit 1
           }
 
+          {
+            echo "R1_BRANCH=${R1_BRANCH}"
+            echo "R1_SHA=${ACTUAL_SHA}"
+          } > .r1-evidence/r1-commit.txt
+
           echo "R1 branch and commit preflight: PASS"
+
       # ======================================================
-      # 3. NODE
+      # 4. NODE
       #
-      # The application continues to test on Node 22.
+      # The TrustPay application remains on Node 22.
       #
-      # actions/setup-node@v7 itself runs using the current
-      # Node 24-compatible GitHub Actions runtime.
+      # actions/setup-node@v7 uses the current GitHub Actions
+      # runtime and avoids the previous Node 20 deprecation
+      # warning.
       # ======================================================
 
       - name: Setup Node.js 22
@@ -172,21 +214,21 @@ jobs:
           cache: npm
 
       # ======================================================
-      # 4. INSTALL
+      # 5. INSTALL
       # ======================================================
 
       - name: Install dependencies from lockfile
         run: npm ci
 
       # ======================================================
-      # 5. SECURITY
+      # 6. SECURITY
       # ======================================================
 
       - name: Security audit
         run: npm audit --audit-level=high
 
       # ======================================================
-      # 6. TYPECHECK
+      # 7. TYPECHECK
       # ======================================================
 
       - name: Core typecheck
@@ -199,14 +241,14 @@ jobs:
         run: npm run typecheck --if-present
 
       # ======================================================
-      # 7. LINT
+      # 8. LINT
       # ======================================================
 
       - name: Lint
         run: npm run lint --if-present
 
       # ======================================================
-      # 8. TESTS
+      # 9. TESTS
       # ======================================================
 
       - name: Unit and integration tests
@@ -219,14 +261,14 @@ jobs:
         run: node scripts/v2-smoke.cjs
 
       # ======================================================
-      # 9. PRODUCTION BUILD
+      # 10. PRODUCTION BUILD
       # ======================================================
 
       - name: Production build
         run: npm run build
 
       # ======================================================
-      # 10. PLAYWRIGHT
+      # 11. PLAYWRIGHT
       # ======================================================
 
       - name: Install Playwright Chromium
@@ -238,10 +280,9 @@ jobs:
         run: npm run e2e --if-present
 
       # ======================================================
-      # 11. SUPABASE CLI
+      # 12. SUPABASE CLI
       #
-      # Keep the proven v3 setup action and the known-good CLI
-      # version used by the existing R1 gate.
+      # Keep the known-good Supabase CLI installation mechanism.
       # ======================================================
 
       - name: Install Supabase CLI
@@ -250,7 +291,7 @@ jobs:
           version: "2.117.0"
 
       # ======================================================
-      # 12. VERIFY SUPABASE CREDENTIALS
+      # 13. VERIFY SUPABASE CREDENTIALS
       # ======================================================
 
       - name: Validate Supabase credentials
@@ -289,7 +330,7 @@ jobs:
           echo "Supabase credential preflight: PASS"
 
       # ======================================================
-      # 13. SHOW SUPABASE CLI VERSION
+      # 14. SHOW SUPABASE CLI VERSION
       # ======================================================
 
       - name: Verify Supabase CLI
@@ -299,13 +340,10 @@ jobs:
           supabase --version
 
       # ======================================================
-      # 14. CHECK DOCKER AVAILABLE
+      # 15. VERIFY RUNNER DOCKER
       #
-      # This Docker is provided by the GitHub-hosted runner.
-      # You do NOT need Docker installed on your own computer.
-      #
-      # Supabase schema-diff operations can use a temporary
-      # shadow database.
+      # This is Docker supplied by GitHub's hosted runner.
+      # You do NOT need Docker on your own computer.
       # ======================================================
 
       - name: Verify GitHub runner Docker
@@ -316,7 +354,7 @@ jobs:
           docker version
 
       # ======================================================
-      # 15. LINK THE EXISTING TRUSTPAY SUPABASE PROJECT
+      # 16. LINK TRUSTPAY SUPABASE PROJECT
       # ======================================================
 
       - name: Link TrustPay Supabase project
@@ -331,10 +369,7 @@ jobs:
           echo "Supabase project link: PASS"
 
       # ======================================================
-      # 16. CREATE EVIDENCE DIRECTORY AND SHOW CURRENT STATE
-      #
-      # The directory is created unconditionally so that the
-      # evidence-upload step always has something to upload.
+      # 17. RECORD MIGRATION STATE BEFORE ANY CHANGE
       # ======================================================
 
       - name: Show Supabase migration state
@@ -342,16 +377,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p .r1-evidence
-
           supabase migration list \
             --linked \
             | tee .r1-evidence/migration-state-before.txt
 
       # ======================================================
-      # 17. CHECK FOR PENDING MIGRATIONS
+      # 18. CHECK PENDING MIGRATIONS
       #
-      # Read-only. Nothing is changed here.
+      # READ ONLY.
       # ======================================================
 
       - name: Check pending migrations
@@ -365,13 +398,10 @@ jobs:
             | tee .r1-evidence/migration-dry-run.txt
 
       # ======================================================
-      # 18. VERIFY CONFIRMATION FOR REMOTE CHANGES
+      # 19. VALIDATE REMOTE-CHANGE AUTHORIZATION
       #
-      # Any R1 certification run that applies or reconciles
-      # Supabase migrations must explicitly provide the exact
-      # confirmation string.
-      #
-      # This prevents accidental production migration changes.
+      # Remote reconciliation/application is deliberately
+      # fail-closed.
       # ======================================================
 
       - name: Validate migration change authorization
@@ -389,29 +419,10 @@ jobs:
           echo "Remote migration authorization: PASS"
 
       # ======================================================
-      # 19. SAFE BASELINE-RECONCILIATION PREFLIGHT
-      #
-      # IMPORTANT:
-      #
-      # We do NOT repair migration history simply because a
-      # schema object already exists.
-      #
-      # First:
-      #   1. Locate the exact baseline migration.
-      #   2. Reject obvious data-changing statements.
-      #   3. Reject DO blocks.
-      #   4. Compare repository migrations against the linked
-      #      remote database.
-      #
-      # Only if there is NO schema difference do we conclude:
-      #
-      #   "The schema already exists remotely and only the
-      #    migration-history record is missing."
-      #
-      # Only then is migration-history repair allowed.
+      # 20. LOCATE BASELINE MIGRATION
       # ======================================================
 
-      - name: Verify baseline migration is safe to reconcile
+      - name: Locate R1 baseline migration
         if: ${{ inputs.apply_remote_migrations == true }}
         shell: bash
         run: |
@@ -438,49 +449,329 @@ jobs:
           echo "Baseline migration file:"
           echo "${MIGRATION_FILE}"
 
-          echo
+          echo "R1_BASELINE_FILE=${MIGRATION_FILE}" \
+            > .r1-evidence/baseline-migration.txt
 
-          echo "Checking migration for obvious data-changing statements..."
+      # ======================================================
+      # 21. ANALYZE BASELINE SQL SAFELY
+      #
+      # IMPORTANT:
+      #
+      # The previous workflow rejected ALL INSERT statements.
+      #
+      # That was too broad.
+      #
+      # This version allows ONLY this class of bootstrap DML:
+      #
+      #   INSERT INTO storage.buckets (...)
+      #   VALUES (...)
+      #   ON CONFLICT (...) DO NOTHING;
+      #
+      # This is suitable for idempotent Storage bucket metadata.
+      #
+      # It still BLOCKS arbitrary application-data:
+      #
+      #   INSERT
+      #   UPDATE
+      #   DELETE
+      #   MERGE
+      #   COPY
+      #
+      # unless the statement is the explicitly allowed
+      # storage.buckets bootstrap form.
+      #
+      # The parser is intentionally conservative:
+      #
+      # - comments are removed
+      # - dollar-quoted DO blocks are blocked
+      # - unsupported DML causes failure
+      # - only simple single-statement storage bucket inserts
+      #   using literal values are allowed
+      # ======================================================
 
-          if grep -Ein \
-            '^[[:space:]]*(insert|update|delete|merge|copy)[[:space:]]' \
-            "${MIGRATION_FILE}" \
-            > .r1-evidence/baseline-data-change-check.txt; then
+      - name: Analyze R1 baseline SQL
+        if: ${{ inputs.apply_remote_migrations == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-            echo "::error::The baseline migration contains data-changing SQL."
-            echo "::error::Migration history will NOT be repaired automatically."
+          MIGRATION_FILE="$(cut -d= -f2- .r1-evidence/baseline-migration.txt)"
+
+          python3 - "${MIGRATION_FILE}" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          migration_path = Path(sys.argv[1])
+          sql = migration_path.read_text(encoding="utf-8")
+
+          # --------------------------------------------------
+          # Remove SQL comments while preserving line structure.
+          # --------------------------------------------------
+
+          sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.S)
+          sql = re.sub(r"--[^\n]*", "", sql)
+
+          # --------------------------------------------------
+          # DO blocks are intentionally unsupported for automatic
+          # migration-history reconciliation.
+          # --------------------------------------------------
+
+          if re.search(r"\bDO\s+\$\$", sql, flags=re.I):
+              print("::error::The baseline migration contains a DO block.")
+              print("::error::Automatic migration-history repair is disabled for DO-block migrations.")
+              sys.exit(1)
+
+          # --------------------------------------------------
+          # Split statements conservatively.
+          #
+          # The baseline migration is expected to contain normal
+          # migration SQL. This does not attempt to become a full
+          # PostgreSQL parser.
+          # --------------------------------------------------
+
+          statements = [
+              stmt.strip()
+              for stmt in re.split(r";\s*", sql)
+              if stmt.strip()
+          ]
+
+          allowed_storage_statements = []
+          forbidden_dml = []
+
+          storage_pattern = re.compile(
+              r"""
+              ^\s*
+              INSERT\s+INTO\s+
+              (?:"?storage"?\.)?
+              "?buckets"?
+              \s*
+              \(
+                  \s*"?(id)"?\s*,
+                  \s*"?(name)"?\s*,
+                  \s*"?(public)"?\s*
+              \)
+              \s*
+              VALUES
+              \s*
+              \(
+                  \s*'((?:''|[^'])*)'\s*,
+                  \s*'((?:''|[^'])*)'\s*,
+                  \s*(TRUE|FALSE)\s*
+              \)
+              \s*
+              ON\s+CONFLICT
+              (?:\s*\([^)]*\))?
+              \s+
+              DO\s+NOTHING
+              \s*$
+              """,
+              flags=re.I | re.X,
+          )
+
+          dml_pattern = re.compile(
+              r"^\s*(INSERT|UPDATE|DELETE|MERGE|COPY)\b",
+              flags=re.I,
+          )
+
+          for statement in statements:
+              match = storage_pattern.match(statement)
+
+              if match:
+                  bucket_id = match.group(3).replace("''", "'")
+                  bucket_name = match.group(4).replace("''", "'")
+                  bucket_public = match.group(5).upper()
+
+                  allowed_storage_statements.append(
+                      {
+                          "id": bucket_id,
+                          "name": bucket_name,
+                          "public": bucket_public,
+                          "sql": statement,
+                      }
+                  )
+                  continue
+
+              dml = dml_pattern.match(statement)
+
+              if dml:
+                  forbidden_dml.append(statement)
+
+          evidence_path = Path(".r1-evidence")
+
+          allowed_path = evidence_path / "allowed-storage-bootstrap.sql"
+          forbidden_path = evidence_path / "forbidden-dml.sql"
+
+          with allowed_path.open("w", encoding="utf-8") as handle:
+              for item in allowed_storage_statements:
+                  handle.write(item["sql"])
+                  handle.write(";\n\n")
+
+          with forbidden_path.open("w", encoding="utf-8") as handle:
+              for statement in forbidden_dml:
+                  handle.write(statement)
+                  handle.write(";\n\n")
+
+          print("Baseline SQL analysis complete.")
+          print(f"Allowed storage bootstrap statements: {len(allowed_storage_statements)}")
+          print(f"Forbidden DML statements: {len(forbidden_dml)}")
+
+          if forbidden_dml:
+              print()
+              print("The following DML statements are NOT eligible for automatic migration-history repair:")
+              for index, statement in enumerate(forbidden_dml, start=1):
+                  print()
+                  print(f"--- forbidden DML #{index} ---")
+                  print(statement)
+              sys.exit(1)
+
+          with (evidence_path / "storage-buckets.expected").open(
+              "w",
+              encoding="utf-8",
+          ) as handle:
+              for item in allowed_storage_statements:
+                  handle.write(
+                      f"{item['id']}\t{item['name']}\t{item['public']}\n"
+                  )
+
+          print("Baseline DML safety policy: PASS")
+          PY
+
+      # ======================================================
+      # 22. VERIFY EXPECTED STORAGE BUCKETS REMOTELY
+      #
+      # Supabase db diff is not treated as authoritative for
+      # Storage bucket state.
+      #
+      # The expected bucket rows are queried directly from the
+      # linked database.
+      #
+      # We require the exact id, name, and public setting from
+      # the migration to already exist remotely BEFORE repairing
+      # migration history.
+      #
+      # This closes the important safety gap:
+      #
+      # "schema exists" is NOT enough when migration SQL also
+      # provisions data-backed Storage metadata.
+      # ======================================================
+
+      - name: Verify R1 Storage bucket state
+        if: ${{ inputs.apply_remote_migrations == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          EXPECTED_FILE=".r1-evidence/storage-buckets.expected"
+          RESULTS_FILE=".r1-evidence/storage-buckets.remote.txt"
+
+          : > "${RESULTS_FILE}"
+
+          if [[ ! -s "${EXPECTED_FILE}" ]]; then
+            echo "No allowed storage bucket bootstrap statements were found."
+            echo "No Storage bucket verification is required."
+            exit 0
+          fi
+
+          while IFS=$'\t' read -r BUCKET_ID BUCKET_NAME BUCKET_PUBLIC; do
+
+            [[ -n "${BUCKET_ID}" ]] || continue
+
+            if [[ "${BUCKET_PUBLIC}" == "TRUE" ]]; then
+              EXPECTED_PUBLIC="true"
+            else
+              EXPECTED_PUBLIC="false"
+            fi
+
+            # Escape PostgreSQL string literals defensively.
+            ESCAPED_ID="${BUCKET_ID//\'/\'\'}"
+            ESCAPED_NAME="${BUCKET_NAME//\'/\'\'}"
+
+            SQL="
+              SELECT
+                CASE
+                  WHEN EXISTS (
+                    SELECT 1
+                    FROM storage.buckets
+                    WHERE id = '${ESCAPED_ID}'
+                      AND name = '${ESCAPED_NAME}'
+                      AND public = ${EXPECTED_PUBLIC}
+                  )
+                  THEN 'PRESENT'
+                  ELSE 'MISSING'
+                END AS status;
+            "
+
+            echo "Checking Storage bucket:"
+            echo "  id=${BUCKET_ID}"
+            echo "  name=${BUCKET_NAME}"
+            echo "  public=${EXPECTED_PUBLIC}"
+
+            QUERY_RESULT="$(
+              supabase db query \
+                --linked \
+                -p "${SUPABASE_DB_PASSWORD}" \
+                "${SQL}"
+            )"
+
+            printf '%s\n' "${QUERY_RESULT}" \
+              | tee -a "${RESULTS_FILE}"
+
+            if ! printf '%s\n' "${QUERY_RESULT}" \
+              | grep -Eiq '(^|[^[:alpha:]])PRESENT([^[:alpha:]]|$)'; then
+
+              echo "::error::Required Storage bucket is missing or does not match the migration."
+              echo "::error::Bucket id: ${BUCKET_ID}"
+              echo "::error::Bucket name: ${BUCKET_NAME}"
+              echo "::error::Expected public: ${EXPECTED_PUBLIC}"
+              exit 1
+            fi
+
+            echo "Storage bucket verification: PASS"
             echo
-            cat .r1-evidence/baseline-data-change-check.txt
-            exit 1
-          fi
 
-          : > .r1-evidence/baseline-data-change-check.txt
-          echo "No obvious data-changing SQL detected."
+          done < "${EXPECTED_FILE}"
 
-          echo
+          echo "All required R1 Storage bucket metadata is present remotely."
 
-          if grep -Eiq \
-            '^[[:space:]]*do[[:space:]]+\$\$' \
-            "${MIGRATION_FILE}"; then
+      # ======================================================
+      # 23. VERIFY PUBLIC/EXTENSIONS SCHEMA EQUIVALENCE
+      #
+      # IMPORTANT:
+      #
+      # Current Supabase documentation notes that db diff can
+      # fail to fully capture Storage bucket changes.
+      #
+      # Therefore Storage is verified separately above.
+      #
+      # The schema comparison here focuses on:
+      #
+      #   public
+      #   extensions
+      #
+      # where the application's R1 database objects live.
+      #
+      # If there is ANY schema difference, stop.
+      # ======================================================
 
-            echo "::error::The baseline migration contains a DO block."
-            echo "::error::Automatic migration-history repair is disabled for this migration."
-            exit 1
-          fi
+      - name: Verify R1 application schema equivalence
+        if: ${{ inputs.apply_remote_migrations == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          echo "No DO block detected."
-
-          echo
-
-          echo "Comparing repository migrations against the linked remote database..."
-
-          DIFF_FILE=".r1-evidence/r1-baseline-schema-diff.sql"
+          DIFF_FILE=".r1-evidence/r1-application-schema-diff.sql"
 
           rm -f "${DIFF_FILE}"
+
+          echo "Comparing repository migrations against the linked remote database."
+          echo "Schemas checked: public, extensions"
+          echo
 
           supabase db diff \
             --linked \
             --use-pg-delta \
+            --schema public,extensions \
             --output "${DIFF_FILE}"
 
           touch "${DIFF_FILE}"
@@ -495,25 +786,51 @@ jobs:
             cat "${DIFF_FILE}"
 
             exit 1
-
           fi
 
-          echo "Remote schema comparison: PASS"
-          echo "No schema differences were detected."
-
-          echo
-
-          echo "The migration can therefore be treated as an already-applied baseline whose remote history record is missing."
+          echo "Application schema comparison: PASS"
+          echo "No public/extension schema differences were detected."
 
       # ======================================================
-      # 20. REPAIR THE REMOTE MIGRATION HISTORY
+      # 24. RECORD RECONCILIATION DECISION
+      # ======================================================
+
+      - name: Record R1 reconciliation decision
+        if: ${{ inputs.apply_remote_migrations == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          {
+            echo "R1 MIGRATION RECONCILIATION DECISION"
+            echo "BASELINE_MIGRATION=${R1_BASELINE_MIGRATION}"
+            echo "APPLICATION_SCHEMA_CHECK=PASS"
+            echo "STORAGE_BUCKET_CHECK=PASS"
+            echo "DANGEROUS_DML_CHECK=PASS"
+            echo "POLICY=SCHEMA-EQUIVALENCE-PLUS-STORAGE-METADATA-EQUIVALENCE"
+            echo "ACTION=SAFE-MIGRATION-HISTORY-REPAIR"
+          } > .r1-evidence/reconciliation-decision.txt
+
+          echo "R1 migration reconciliation preflight: PASS"
+
+      # ======================================================
+      # 25. REPAIR BASELINE MIGRATION HISTORY
       #
       # IMPORTANT:
       #
-      # This does NOT execute the baseline SQL again.
+      # This DOES NOT execute the migration SQL.
       #
-      # It only records the baseline migration as applied after
-      # Step 19 proved schema equivalence.
+      # Supabase documents migration repair as a history-table
+      # operation: it marks a migration applied/reverted without
+      # executing the migration SQL.
+      #
+      # We only reach this step after:
+      #
+      #   - explicit authorization
+      #   - exact baseline file found
+      #   - unsafe DML rejected
+      #   - required Storage metadata verified
+      #   - application schema equivalence verified
       # ======================================================
 
       - name: Repair baseline migration history
@@ -523,6 +840,7 @@ jobs:
           set -euo pipefail
 
           echo "Repairing remote migration history..."
+          echo "Migration: ${R1_BASELINE_MIGRATION}"
 
           supabase migration repair \
             "${R1_BASELINE_MIGRATION}" \
@@ -532,7 +850,7 @@ jobs:
           echo "Baseline migration history repair: PASS"
 
       # ======================================================
-      # 21. SHOW MIGRATION HISTORY AFTER REPAIR
+      # 26. VERIFY MIGRATION HISTORY AFTER REPAIR
       # ======================================================
 
       - name: Verify migration history after reconciliation
@@ -546,13 +864,9 @@ jobs:
             | tee .r1-evidence/migration-state-after-repair.txt
 
       # ======================================================
-      # 22. APPLY ALL REMAINING MIGRATIONS
+      # 27. APPLY REMAINING MIGRATIONS
       #
-      # `--yes` prevents the interactive:
-      #
-      #   "Do you want to push these migrations?"
-      #
-      # prompt that caused CI trouble previously.
+      # --yes prevents interactive confirmation prompts in CI.
       # ======================================================
 
       - name: Apply remaining Supabase migrations
@@ -571,7 +885,11 @@ jobs:
           echo "Remaining Supabase migration apply: PASS"
 
       # ======================================================
-      # 23. FINAL MIGRATION STATE
+      # 28. VERIFY FINAL MIGRATION STATE
+      #
+      # This runs whether remote migration application was
+      # requested or not, so the final evidence always records
+      # the actual remote state.
       # ======================================================
 
       - name: Confirm final Supabase migration state
@@ -584,10 +902,10 @@ jobs:
             | tee .r1-evidence/migration-state-final.txt
 
       # ======================================================
-      # 24. LINKED REMOTE DATABASE LINT
+      # 29. LINKED REMOTE DATABASE LINT
       #
-      # `--linked` prevents the CLI from trying to lint the
-      # local 127.0.0.1:54322 database.
+      # --linked is mandatory here so the CLI does not attempt
+      # the local 127.0.0.1:54322 database.
       # ======================================================
 
       - name: Lint linked TrustPay Supabase database
@@ -595,7 +913,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Linting the LINKED remote TrustPay database..."
+          echo "Linting the linked remote TrustPay database..."
 
           supabase db lint \
             --linked \
@@ -604,20 +922,20 @@ jobs:
           echo "Linked remote database lint: PASS"
 
       # ======================================================
-      # 25. PROTECTED VERCEL PREVIEW SMOKE
+      # 30. PROTECTED VERCEL PREVIEW SMOKE
       #
       # IMPORTANT:
       #
-      # Use only:
+      # Use ONLY:
       #
       #   x-vercel-protection-bypass
       #
-      # Do NOT add:
+      # Do NOT use:
       #
       #   x-vercel-set-bypass-cookie
       #
-      # The cookie header previously caused the unwanted 307
-      # redirect behavior.
+      # because the latter caused the previous unwanted 307
+      # behavior.
       # ======================================================
 
       - name: Protected Vercel Preview smoke
@@ -669,7 +987,6 @@ jobs:
           FINAL_URL="$(printf '%s\n' "${CURL_RESULT}" | sed -n '2p')"
 
           echo "HTTP_STATUS=${HTTP_STATUS}"
-
           echo "FINAL_URL=${FINAL_URL}"
 
           if [[ "${FINAL_URL}" == *"vercel.com/login"* ]]; then
@@ -690,8 +1007,54 @@ jobs:
 
           echo "Vercel Preview smoke: PASS"
 
+          {
+            echo "PREVIEW_URL=${PREVIEW_URL}"
+            echo "HTTP_STATUS=${HTTP_STATUS}"
+            echo "FINAL_URL=${FINAL_URL}"
+            echo "RESULT=PASS"
+          } > .r1-evidence/vercel-preview-smoke.txt
+
       # ======================================================
-      # 26. RECORD R1 RELEASE EVIDENCE
+      # 31. VERIFY REQUIRED R1 ARTIFACTS
+      #
+      # Fail if important evidence files expected for an R1
+      # certification are missing.
+      # ======================================================
+
+      - name: Verify R1 evidence completeness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -s .r1-evidence/r1-commit.txt || {
+            echo "::error::Missing R1 commit evidence."
+            exit 1
+          }
+
+          test -s .r1-evidence/migration-state-before.txt || {
+            echo "::error::Missing migration-before evidence."
+            exit 1
+          }
+
+          test -s .r1-evidence/migration-dry-run.txt || {
+            echo "::error::Missing migration dry-run evidence."
+            exit 1
+          }
+
+          test -s .r1-evidence/migration-state-final.txt || {
+            echo "::error::Missing final migration-state evidence."
+            exit 1
+          }
+
+          test -s .r1-evidence/vercel-preview-smoke.txt || {
+            echo "::error::Missing Vercel Preview smoke evidence."
+            exit 1
+          }
+
+          echo "R1 evidence completeness: PASS"
+
+      # ======================================================
+      # 32. RECORD RELEASE EVIDENCE CONTEXT
       # ======================================================
 
       - name: Record R1 release evidence
@@ -699,74 +1062,43 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p .r1-evidence
-
           R1_SHA="$(git rev-parse HEAD)"
 
           {
             echo "TRUSTPAY R1 RELEASE EVIDENCE"
             echo "UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "REPOSITORY=${GITHUB_REPOSITORY}"
             echo "R1_BRANCH=${R1_BRANCH}"
             echo "R1_SHA=${R1_SHA}"
             echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
             echo "RUN_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "TRIGGER_SHA=${GITHUB_SHA}"
+            echo "TRIGGER_REF=${GITHUB_REF}"
             echo "PREVIEW_URL=${{ inputs.preview_url }}"
             echo "REMOTE_MIGRATIONS_APPLIED=${{ inputs.apply_remote_migrations }}"
+            echo "CONFIRMATION_TARGET=${{ inputs.confirm_target }}"
             echo "KNOWN_BASELINE_MIGRATION=${R1_BASELINE_MIGRATION}"
-            echo "BASELINE_RECONCILIATION_POLICY=SCHEMA-EQUIVALENCE-BEFORE-HISTORY-REPAIR"
+            echo "BASELINE_RECONCILIATION_POLICY=SCHEMA-EQUIVALENCE-PLUS-STORAGE-METADATA-EQUIVALENCE"
+            echo "CERTIFICATION_TAG=v2.0.0-r1"
+            echo "CERTIFICATION_TAG_POLICY=NEVER-RETARGET"
           } > .r1-evidence/release-context.txt
 
           echo "R1 release evidence context written."
 
       # ======================================================
-      # 27. UPLOAD R1 EVIDENCE
+      # 33. ENFORCE R1 CERTIFICATION PRECONDITIONS
       #
-      # IMPORTANT FIX:
-      #
-      # `.r1-evidence` is a hidden directory because it starts
-      # with a dot.
-      #
-      # Current upload-artifact behavior excludes hidden files
-      # unless include-hidden-files is explicitly enabled.
-      #
-      # This is why the previous run could say:
-      #
-      #   No files were found with the provided path: .r1-evidence/
-      #
-      # while the workflow itself had created that directory.
+      # The gate must NOT certify R1 unless the remote migration
+      # reconciliation path was intentionally executed.
       # ======================================================
 
-      - name: Upload R1 evidence
-        uses: actions/upload-artifact@v6
-        with:
-          name: trustpay-r1-evidence-${{ github.run_id }}
-          path: .r1-evidence/
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 90
-
-      # ======================================================
-      # 28. ENFORCE CERTIFICATION PRECONDITION
-      #
-      # R1 certification requires that the remote Supabase
-      # migration reconciliation/application path was
-      # intentionally executed.
-      #
-      # This prevents a future manual run with:
-      #
-      #   apply_remote_migrations = false
-      #
-      # from accidentally claiming a certified release.
-      # ======================================================
-
-      - name: Enforce R1 certification precondition
+      - name: Enforce R1 certification preconditions
         shell: bash
         run: |
           set -euo pipefail
 
           if [[ "${{ inputs.apply_remote_migrations }}" != "true" ]]; then
             echo "::error::R1 certification requires apply_remote_migrations=true."
-            echo "::error::Run the release gate again with intentional migration application/reconciliation."
             exit 1
           fi
 
@@ -775,36 +1107,31 @@ jobs:
             exit 1
           fi
 
-          echo "R1 certification precondition: PASS"
+          echo "R1 certification preconditions: PASS"
 
       # ======================================================
-      # 29. CREATE OR VERIFY R1 CERTIFICATION TAG
+      # 34. CREATE OR VERIFY R1 CERTIFICATION TAG
       #
       # IMPORTANT:
       #
-      # We use the ACTUAL checked-out HEAD:
+      # The tag target is the ACTUAL checked-out HEAD.
       #
-      #   git rev-parse HEAD
-      #
-      # NOT:
-      #
-      #   github.sha
-      #
-      # because a workflow may be manually dispatched from main
-      # while intentionally checking out the R1 execution branch.
+      # It is NOT github.sha, because the workflow may have
+      # been manually launched from main while intentionally
+      # checking out the R1 execution branch.
       #
       # Behavior:
       #
-      # - If v2.0.0-r1 does not exist:
-      #     create it at the validated R1 HEAD.
+      # - tag absent:
+      #     create it at validated HEAD
       #
-      # - If v2.0.0-r1 already exists at the same commit:
-      #     succeed and leave it untouched.
+      # - tag already at validated HEAD:
+      #     succeed and leave it untouched
       #
-      # - If v2.0.0-r1 exists at another commit:
-      #     FAIL.
+      # - tag at another commit:
+      #     fail
       #
-      # The workflow NEVER retargets the certification tag.
+      # NEVER retarget an existing certification tag.
       # ======================================================
 
       - name: Create or verify R1 certification tag
@@ -822,7 +1149,6 @@ jobs:
           echo "  Tag:    ${TAG}"
 
           echo
-          echo "Checking whether ${TAG} already exists remotely..."
 
           if git ls-remote \
             --exit-code \
@@ -833,26 +1159,33 @@ jobs:
 
             echo "${TAG} already exists."
 
-            echo
-            echo "Fetching existing certification tag for exact commit verification..."
-
             git fetch \
               origin \
               "refs/tags/${TAG}:refs/tags/${TAG}"
 
             EXISTING_SHA="$(git rev-list -n 1 "${TAG}^{commit}")"
 
-            echo "Existing tag commit: ${EXISTING_SHA}"
-            echo "Validated R1 commit: ${R1_SHA}"
+            echo "Existing tag commit:"
+            echo "${EXISTING_SHA}"
+
+            echo
+
+            echo "Validated R1 commit:"
+            echo "${R1_SHA}"
 
             if [[ "${EXISTING_SHA}" != "${R1_SHA}" ]]; then
-              echo
-              echo "::error::Certification tag ${TAG} already exists at a DIFFERENT commit."
+              echo "::error::Certification tag ${TAG} exists at a different commit."
               echo "::error::Existing tag commit: ${EXISTING_SHA}"
               echo "::error::Validated R1 commit: ${R1_SHA}"
               echo "::error::The certification tag will NOT be retargeted."
               exit 1
             fi
+
+            {
+              echo "TAG=${TAG}"
+              echo "TAG_SHA=${EXISTING_SHA}"
+              echo "TAG_RESULT=VERIFIED"
+            } > .r1-evidence/certification-tag.txt
 
             echo
             echo "=============================================="
@@ -860,7 +1193,7 @@ jobs:
             echo "=============================================="
             echo "Tag:    ${TAG}"
             echo "Commit: ${R1_SHA}"
-            echo "Result: Existing tag already points to the exact validated R1 commit."
+            echo "Result: Existing tag already points to exact validated R1 commit."
             echo "=============================================="
 
             exit 0
@@ -892,6 +1225,12 @@ jobs:
             origin \
             "refs/tags/${TAG}"; then
 
+            {
+              echo "TAG=${TAG}"
+              echo "TAG_SHA=${R1_SHA}"
+              echo "TAG_RESULT=CREATED"
+            } > .r1-evidence/certification-tag.txt
+
             echo
             echo "=============================================="
             echo "TRUSTPAY R1 CERTIFICATION TAG CREATED"
@@ -901,13 +1240,17 @@ jobs:
             echo "=============================================="
 
             exit 0
-
           fi
 
-          # A concurrent process may have created the tag after
-          # our first existence check. Never overwrite it.
+          # --------------------------------------------------
+          # Race-safe recheck.
+          #
+          # If another process created the tag immediately after
+          # our initial check, never overwrite it.
+          # --------------------------------------------------
+
           echo
-          echo "::warning::Tag push did not succeed. Re-checking whether another process created ${TAG}."
+          echo "::warning::Tag push did not succeed. Re-checking the remote tag."
 
           git tag -d "${TAG}" >/dev/null 2>&1 || true
 
@@ -921,8 +1264,12 @@ jobs:
 
           EXISTING_SHA="$(git rev-list -n 1 "${TAG}^{commit}")"
 
-          echo "Existing tag commit after race check: ${EXISTING_SHA}"
-          echo "Validated R1 commit: ${R1_SHA}"
+          echo "Existing tag commit after recheck:"
+          echo "${EXISTING_SHA}"
+
+          echo
+          echo "Validated R1 commit:"
+          echo "${R1_SHA}"
 
           if [[ "${EXISTING_SHA}" != "${R1_SHA}" ]]; then
             echo "::error::The certification tag exists at a different commit."
@@ -932,11 +1279,97 @@ jobs:
             exit 1
           fi
 
+          {
+            echo "TAG=${TAG}"
+            echo "TAG_SHA=${EXISTING_SHA}"
+            echo "TAG_RESULT=VERIFIED_AFTER_RACE"
+          } > .r1-evidence/certification-tag.txt
+
           echo
           echo "=============================================="
           echo "TRUSTPAY R1 CERTIFICATION TAG VERIFIED"
           echo "=============================================="
           echo "Tag:    ${TAG}"
           echo "Commit: ${R1_SHA}"
-          echo "Result: Concurrent tag creation resolved safely; tag matches validated commit."
+          echo "Result: Concurrent creation resolved safely."
           echo "=============================================="
+
+      # ======================================================
+      # 35. FINAL RELEASE-CERTIFICATION ASSERTION
+      #
+      # This step runs only if the tag step succeeded.
+      #
+      # It confirms that:
+      #
+      #   v2.0.0-r1
+      #
+      # resolves to the exact commit that was actually tested.
+      # ======================================================
+
+      - name: Final R1 certification assertion
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="v2.0.0-r1"
+          R1_SHA="$(git rev-parse HEAD)"
+
+          git fetch \
+            origin \
+            "refs/tags/${TAG}:refs/tags/${TAG}"
+
+          TAG_SHA="$(git rev-list -n 1 "${TAG}^{commit}")"
+
+          echo "Validated R1 commit:"
+          echo "${R1_SHA}"
+
+          echo
+
+          echo "Certification tag commit:"
+          echo "${TAG_SHA}"
+
+          if [[ "${TAG_SHA}" != "${R1_SHA}" ]]; then
+            echo "::error::Final certification assertion failed."
+            echo "::error::Tag ${TAG} does not point to validated R1 commit."
+            exit 1
+          fi
+
+          {
+            echo "FINAL_R1_ASSERTION=PASS"
+            echo "R1_SHA=${R1_SHA}"
+            echo "TAG=${TAG}"
+            echo "TAG_SHA=${TAG_SHA}"
+          } > .r1-evidence/final-certification.txt
+
+          echo
+          echo "=============================================="
+          echo "TRUSTPAY R1 CERTIFICATION ASSERTION: PASS"
+          echo "=============================================="
+          echo "R1 commit: ${R1_SHA}"
+          echo "Tag:       ${TAG}"
+          echo "Tag SHA:   ${TAG_SHA}"
+          echo "=============================================="
+
+      # ======================================================
+      # 36. UPLOAD R1 EVIDENCE
+      #
+      # IMPORTANT:
+      #
+      # .r1-evidence is a hidden directory.
+      #
+      # include-hidden-files=true makes sure the artifact
+      # uploader actually includes it.
+      #
+      # always() ensures failure diagnostics are uploaded even
+      # when a later gate step fails.
+      # ======================================================
+
+      - name: Upload R1 evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: trustpay-r1-evidence-${{ github.run_id }}
+          path: .r1-evidence/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
