@@ -78,3 +78,8 @@ jobs:
 
       - name: Browser E2E tests
         run: npm run e2e
+
+      - name: R1 Vercel preview smoke
+        env:
+          TRUSTPAY_PREVIEW_URL: https://trustpay-nigeria-msme-git-v-792fd5-eseoghenes-projects-1ef886d4.vercel.app
+        run: npm run test:r1-preview
