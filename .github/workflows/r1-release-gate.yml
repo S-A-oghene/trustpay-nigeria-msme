@@ -107,7 +107,6 @@ jobs:
       # ======================================================
 
       - name: Verify R1 branch and commit
-        id: r1_commit
         shell: bash
         run: |
           set -euo pipefail
@@ -141,6 +140,11 @@ jobs:
 
           echo
 
+          echo "Validated R1 commit:"
+          echo "${ACTUAL_SHA}"
+
+          echo
+
           echo "Recent commits:"
           git log -5 --oneline
 
@@ -151,8 +155,7 @@ jobs:
             exit 1
           }
 
-          echo "R1 commit SHA: ${ACTUAL_SHA}" >> "$GITHUB_OUTPUT"
-
+          echo "R1 branch and commit preflight: PASS"
       # ======================================================
       # 3. NODE
       #
