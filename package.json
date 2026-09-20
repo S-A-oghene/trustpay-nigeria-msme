@@ -17,7 +17,8 @@
     "typecheck:static": "tsc -p tsconfig.static.json",
     "test:core": "rm -rf .tmp/core && tsc -p tsconfig.core.emit.json && node scripts/core-smoke.cjs",
     "test:v2": "node scripts/v2-smoke.cjs",
-    "check:v2": "npm run verify:repo && npm run typecheck && npm run test:v2"
+    "check:v2": "npm run verify:repo && npm run typecheck && npm run test:v2 && npm run test:r1-schema",
+    "test:r1-schema": "node scripts/r1-schema-adversarial.cjs"
   },
   "engines": {
     "node": ">=22.16.0"
