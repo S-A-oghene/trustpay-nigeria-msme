@@ -19,6 +19,8 @@ async function fetchWithRetry(url){
 for(const route of routes){
   const url=new URL(route.path,base).toString();
   const {res,body}=await fetchWithRetry(url);
+  console.log(`Preview response: ${url} -> ${res.status} ${res.url}`);
+  console.log(`Preview body prefix: ${body.slice(0,1500).replace(/\\s+/g,' ').trim()}`);
   for(const token of route.expect){
     if(!body.includes(token)) throw new Error(`Expected "${token}" in ${url}`);
   }
