@@ -23,7 +23,7 @@ It does **not** hold customer funds in the base product, does not require CAC re
 - Obligation Watch / expiry model.
 - Pricing and cost-engine primitives.
 - Security threat model, external-claims register, change control and beginner deployment guide.
-- CI configuration for dependency install, typecheck, lint, tests and build; this handoff omits a lockfile because registry resolution was unavailable in the build container.
+- CI configuration for dependency install, security audit, repository/type validation, V2 smoke, schema/RLS adversarial validation, tests, build and browser E2E; the repository includes a tracked npm lockfile.
 
 ## 2. Demo Mode
 
