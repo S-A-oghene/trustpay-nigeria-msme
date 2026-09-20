@@ -1,6 +1,6 @@
 const base=process.env.TRUSTPAY_PREVIEW_URL;
 if(!base) throw new Error('TRUSTPAY_PREVIEW_URL is required');
-const routes=[{path:'/',expect:['Make online commerce feel accountable.']},{path:'/demo',expect:['DEMO CONTROL ROOM','Every state below is simulated.']}];
+const routes=[{path:'/',expect:['TrustPay Nigeria MSME','home-title']},{path:'/demo',expect:['TrustPay Nigeria MSME','DEMO CONTROL ROOM']}];
 
 async function fetchWithRetry(url){
   let last;
