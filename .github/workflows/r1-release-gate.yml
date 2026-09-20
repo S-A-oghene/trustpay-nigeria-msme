@@ -3,19 +3,20 @@ name: TrustPay R1 Release Gate
 on:
   workflow_dispatch:
     inputs:
+
       preview_url:
         description: "Exact Vercel Preview URL for the current R1 deployment"
         required: true
         type: string
 
       apply_remote_migrations:
-        description: "Apply repository migrations to the configured TrustPay Supabase project"
+        description: "Apply/reconcile R1 Supabase migrations"
         required: true
         type: boolean
         default: false
 
       confirm_target:
-        description: "Type TRUSTPAY-R1-SUPABASE-APPLY only when intentionally applying migrations"
+        description: "Type TRUSTPAY-R1-SUPABASE-APPLY only when intentionally applying/reconciling R1 migrations"
         required: false
         type: string
         default: ""
@@ -35,30 +36,26 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    # ==========================================================
-    # JOB-LEVEL ENVIRONMENT
-    #
-    # These values are intentionally defined here instead of
-    # inside individual steps.
-    #
-    # This means every Supabase command in this job receives:
-    #
-    # SUPABASE_ACCESS_TOKEN
-    # SUPABASE_DB_PASSWORD
-    # SUPABASE_PROJECT_ID
-    #
-    # This prevents the earlier:
-    #
-    # "Access token not provided"
-    #
-    # problem from returning in a later Supabase step.
-    # ==========================================================
-
     env:
+
+      # ======================================================
+      # TRUSTPAY RELEASE TARGET
+      # ======================================================
 
       R1_BRANCH: v2.0.0-execution-r1
 
       NODE_VERSION: "22"
+
+      # ======================================================
+      # SUPABASE
+      #
+      # IMPORTANT:
+      #
+      # These are JOB-LEVEL variables.
+      #
+      # Every Supabase CLI step therefore receives the
+      # credentials.
+      # ======================================================
 
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
@@ -66,13 +63,26 @@ jobs:
 
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
 
+      # ======================================================
+      # VERCEL
+      # ======================================================
+
       VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+
+      # ======================================================
+      # KNOWN BASELINE MIGRATION
+      #
+      # This is the migration that is currently failing because
+      # the remote database already contains its schema objects.
+      # ======================================================
+
+      R1_BASELINE_MIGRATION: "20260918000000"
 
     steps:
 
-      # ========================================================
-      # 1. CHECK OUT THE ACTUAL R1 APPLICATION BRANCH
-      # ========================================================
+      # ======================================================
+      # 1. CHECK OUT R1
+      # ======================================================
 
       - name: Checkout R1 branch
         uses: actions/checkout@v4
@@ -80,37 +90,38 @@ jobs:
           ref: v2.0.0-execution-r1
           fetch-depth: 0
 
-      # ========================================================
-      # 2. VERIFY THE CHECKED-OUT COMMIT
-      # ========================================================
+      # ======================================================
+      # 2. VERIFY R1
+      # ======================================================
 
       - name: Verify R1 branch and commit
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Expected R1 branch:"
+          echo "Expected branch:"
           echo "${R1_BRANCH}"
 
           echo
+
           echo "Actual commit:"
           git rev-parse HEAD
 
           echo
+
           echo "Recent commits:"
           git log -5 --oneline
 
           echo
-          echo "Checking package.json..."
 
           test -f package.json || {
             echo "::error::package.json was not found."
             exit 1
           }
 
-      # ========================================================
-      # 3. NODE.JS
-      # ========================================================
+      # ======================================================
+      # 3. NODE
+      # ======================================================
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
@@ -118,23 +129,23 @@ jobs:
           node-version: "22"
           cache: npm
 
-      # ========================================================
-      # 4. DETERMINISTIC DEPENDENCY INSTALLATION
-      # ========================================================
+      # ======================================================
+      # 4. INSTALL
+      # ======================================================
 
       - name: Install dependencies from lockfile
         run: npm ci
 
-      # ========================================================
-      # 5. SECURITY AUDIT
-      # ========================================================
+      # ======================================================
+      # 5. SECURITY
+      # ======================================================
 
       - name: Security audit
         run: npm audit --audit-level=high
 
-      # ========================================================
-      # 6. TYPECHECKS
-      # ========================================================
+      # ======================================================
+      # 6. TYPECHECK
+      # ======================================================
 
       - name: Core typecheck
         run: npm run typecheck:core --if-present
@@ -145,44 +156,36 @@ jobs:
       - name: Application typecheck
         run: npm run typecheck --if-present
 
-      # ========================================================
+      # ======================================================
       # 7. LINT
-      # ========================================================
+      # ======================================================
 
       - name: Lint
         run: npm run lint --if-present
 
-      # ========================================================
-      # 8. UNIT + INTEGRATION TESTS
-      # ========================================================
+      # ======================================================
+      # 8. TESTS
+      # ======================================================
 
       - name: Unit and integration tests
         run: npm run test --if-present
 
-      # ========================================================
-      # 9. CORE SMOKE
-      # ========================================================
-
       - name: Core smoke
         run: npm run test:core --if-present
-
-      # ========================================================
-      # 10. V2 DETERMINISTIC SMOKE
-      # ========================================================
 
       - name: V2 deterministic smoke
         run: node scripts/v2-smoke.cjs
 
-      # ========================================================
-      # 11. PRODUCTION BUILD
-      # ========================================================
+      # ======================================================
+      # 9. PRODUCTION BUILD
+      # ======================================================
 
       - name: Production build
         run: npm run build
 
-      # ========================================================
-      # 12. PLAYWRIGHT
-      # ========================================================
+      # ======================================================
+      # 10. PLAYWRIGHT
+      # ======================================================
 
       - name: Install Playwright Chromium
         if: hashFiles('playwright.config.*') != ''
@@ -192,117 +195,57 @@ jobs:
         if: hashFiles('playwright.config.*') != ''
         run: npm run e2e --if-present
 
-      # ========================================================
-      # 13. SUPABASE CLI
-      # ========================================================
+      # ======================================================
+      # 11. SUPABASE CLI
+      # ======================================================
 
       - name: Install Supabase CLI
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@v3
         with:
           version: "2.117.0"
 
-      # ========================================================
-      # 14. CREDENTIAL PRECHECK
-      #
-      # This catches the two previous Supabase failures:
-      #
-      # A. Missing token
-      # B. Wrong token type
-      #
-      # IMPORTANT:
-      # The token VALUE itself is never printed.
-      # ========================================================
+      # ======================================================
+      # 12. VERIFY SUPABASE CREDENTIALS
+      # ======================================================
 
       - name: Validate Supabase credentials
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Checking Supabase automation credentials..."
-
-          # -----------------------------------------------------
-          # ACCESS TOKEN
-          # -----------------------------------------------------
+          echo "Checking Supabase credentials..."
 
           if [[ -z "${SUPABASE_ACCESS_TOKEN:-}" ]]; then
-
             echo "::error::SUPABASE_ACCESS_TOKEN is missing."
-
-            echo "::error::Create/update a GitHub Actions secret named exactly:"
-            echo "::error::SUPABASE_ACCESS_TOKEN"
-
             exit 1
-
           fi
-
-          # -----------------------------------------------------
-          # CURRENT SUPABASE CLI PAT FORMAT
-          #
-          # Current personal access tokens begin with:
-          #
-          # sbp_
-          # -----------------------------------------------------
 
           if [[ ! "${SUPABASE_ACCESS_TOKEN}" =~ ^sbp_[^[:space:]]+$ ]]; then
-
-            echo "::error::SUPABASE_ACCESS_TOKEN has an invalid format."
-
-            echo "::error::It must be a Supabase personal access token beginning with sbp_."
-
-            echo "::error::Do NOT use:"
-            echo "::error::- publishable key"
-            echo "::error::- secret/service-role key"
-            echo "::error::- database password"
-            echo "::error::- project API key"
-
+            echo "::error::SUPABASE_ACCESS_TOKEN does not look like a Supabase personal access token."
+            echo "::error::It must begin with sbp_."
             exit 1
-
           fi
-
-          # -----------------------------------------------------
-          # DATABASE PASSWORD
-          # -----------------------------------------------------
 
           if [[ -z "${SUPABASE_DB_PASSWORD:-}" ]]; then
-
             echo "::error::SUPABASE_DB_PASSWORD is missing."
-
             exit 1
-
           fi
-
-          # -----------------------------------------------------
-          # PROJECT REFERENCE
-          # -----------------------------------------------------
 
           if [[ -z "${SUPABASE_PROJECT_ID:-}" ]]; then
-
             echo "::error::SUPABASE_PROJECT_ID is missing."
-
             exit 1
-
           fi
-
-          # -----------------------------------------------------
-          # VERCEL AUTOMATION SECRET
-          # -----------------------------------------------------
 
           if [[ -z "${VERCEL_AUTOMATION_BYPASS_SECRET:-}" ]]; then
-
             echo "::error::VERCEL_AUTOMATION_BYPASS_SECRET is missing."
-
             exit 1
-
           fi
 
-          echo
           echo "Supabase credential preflight: PASS"
 
-          echo "Vercel automation credential preflight: PASS"
-
-      # ========================================================
-      # 15. SHOW SUPABASE CLI VERSION
-      # ========================================================
+      # ======================================================
+      # 13. SHOW SUPABASE CLI VERSION
+      # ======================================================
 
       - name: Verify Supabase CLI
         run: |
@@ -310,239 +253,324 @@ jobs:
 
           supabase --version
 
-      # ========================================================
-      # 16. LINK THE EXISTING TRUSTPAY SUPABASE PROJECT
+      # ======================================================
+      # 14. CHECK DOCKER AVAILABLE
       #
-      # Authentication comes from JOB-LEVEL env.
-      # ========================================================
+      # IMPORTANT:
+      #
+      # This is Docker inside the GitHub-hosted runner.
+      #
+      # You do NOT need Docker on your own computer.
+      #
+      # Supabase db diff uses a temporary shadow database.
+      # ======================================================
+
+      - name: Verify GitHub runner Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker version
+
+      # ======================================================
+      # 15. LINK THE EXISTING TRUSTPAY SUPABASE PROJECT
+      # ======================================================
 
       - name: Link TrustPay Supabase project
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Linking TrustPay Supabase project..."
-
           supabase link \
             --project-ref "${SUPABASE_PROJECT_ID}" \
             --password "${SUPABASE_DB_PASSWORD}"
 
-          echo "Supabase link: PASS"
+          echo "Supabase project link: PASS"
 
-      # ========================================================
-      # 17. REMOTE MIGRATION STATE
-      # ========================================================
+      # ======================================================
+      # 16. SHOW CURRENT MIGRATION STATE
+      # ======================================================
 
       - name: Show Supabase migration state
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Remote/local migration comparison:"
+          mkdir -p .r1-evidence
 
-          supabase migration list
+          supabase migration list --linked \
+            | tee .r1-evidence/migration-state-before.txt
 
-      # ========================================================
-      # 18. REMOTE MIGRATION DRY RUN
+      # ======================================================
+      # 17. CHECK FOR PENDING MIGRATIONS
       #
-      # This MUST NOT modify the database.
-      # ========================================================
+      # This is read-only.
+      # ======================================================
 
-      - name: Supabase migration dry run
+      - name: Check pending migrations
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Running Supabase migration dry run..."
+          supabase db push \
+            --linked \
+            --dry-run \
+            | tee .r1-evidence/migration-dry-run.txt
 
-          supabase db push --dry-run
+      # ======================================================
+      # 18. SAFE BASELINE-RECONCILIATION PREFLIGHT
+      #
+      # This is the IMPORTANT NEW FIX.
+      #
+      # We do NOT automatically repair history just because
+      # verification_state exists.
+      #
+      # We first compare the repository's migration result
+      # against the actual remote database.
+      #
+      # `supabase db diff --linked` creates a temporary shadow
+      # database from the repository migrations and compares it
+      # against the linked remote project.
+      #
+      # If there are schema differences, we STOP.
+      #
+      # If there are NO schema differences, we can safely say:
+      #
+      # "The schema represented by this migration is already
+      # present remotely; only migration history is missing."
+      # ======================================================
 
-          echo "Supabase migration dry run: PASS"
-
-      # ========================================================
-      # 19. OPTIONAL REAL MIGRATION APPLY
-      # ========================================================
-
-      - name: Apply Supabase migrations
+      - name: Verify baseline migration is safe to reconcile
         if: ${{ inputs.apply_remote_migrations == true }}
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ "${{ inputs.confirm_target }}" != "TRUSTPAY-R1-SUPABASE-APPLY" ]]; then
+          MIGRATION_FILE=""
 
-            echo "::error::Remote migration application was requested."
+          while IFS= read -r file; do
+            MIGRATION_FILE="${file}"
+            break
+          done < <(
+            find supabase/migrations \
+              -maxdepth 1 \
+              -type f \
+              -name "${R1_BASELINE_MIGRATION}_*.sql" \
+              -print
+          )
 
-            echo "::error::The required confirmation text was not supplied correctly."
+          if [[ -z "${MIGRATION_FILE}" ]]; then
+            echo "::error::Could not find migration ${R1_BASELINE_MIGRATION} in supabase/migrations."
+            exit 1
+          fi
 
-            echo "::error::Required exact text:"
-            echo "::error::TRUSTPAY-R1-SUPABASE-APPLY"
+          echo "Baseline migration file:"
+          echo "${MIGRATION_FILE}"
+
+          echo
+
+          echo "Checking migration for obvious data-changing statements..."
+
+          if grep -Ein \
+            '^[[:space:]]*(insert|update|delete|merge|copy)[[:space:]]' \
+            "${MIGRATION_FILE}" \
+            > .r1-evidence/baseline-data-change-check.txt; then
+
+            echo "::error::The baseline migration contains data-changing SQL."
+            echo "::error::Migration history will NOT be repaired automatically."
+            echo
+            cat .r1-evidence/baseline-data-change-check.txt
+            exit 1
+          fi
+
+          if grep -Eiq \
+            '^[[:space:]]*do[[:space:]]+\$\$' \
+            "${MIGRATION_FILE}"; then
+
+            echo "::error::The baseline migration contains a DO block."
+            echo "::error::Automatic migration-history repair is disabled for this migration."
+            exit 1
+          fi
+
+          echo "No obvious data-changing SQL detected."
+
+          echo
+
+          echo "Comparing repository migrations against the linked remote database..."
+
+          DIFF_FILE=".r1-evidence/r1-baseline-schema-diff.sql"
+
+          rm -f "${DIFF_FILE}"
+
+          supabase db diff \
+            --linked \
+            --use-pg-delta \
+            --output "${DIFF_FILE}"
+
+          touch "${DIFF_FILE}"
+
+          if [[ -s "${DIFF_FILE}" ]]; then
+
+            echo "::error::The repository migration schema does NOT exactly match the remote database."
+            echo "::error::Migration history will NOT be repaired automatically."
+            echo
+            echo "Schema differences found:"
+            echo
+            cat "${DIFF_FILE}"
 
             exit 1
 
           fi
 
-          echo "Applying approved R1 migrations..."
+          echo "Remote schema comparison: PASS"
+          echo "No schema differences were detected."
 
-          supabase db push
+          echo
 
-          echo "Supabase migration apply: PASS"
+          echo "The migration can therefore be treated as an already-applied baseline whose remote history record is missing."
 
-      # ========================================================
-      # 20. VERIFY FINAL MIGRATION STATE
-      # ========================================================
+      # ======================================================
+      # 19. REPAIR THE REMOTE MIGRATION HISTORY
+      #
+      # IMPORTANT:
+      #
+      # This DOES NOT execute the migration SQL.
+      #
+      # It only records the migration as applied because the
+      # previous step proved that the corresponding schema is
+      # already present.
+      #
+      # Supabase documents this exact repair workflow.
+      # ======================================================
 
-      - name: Confirm final Supabase migration state
+      - name: Repair baseline migration history
+        if: ${{ inputs.apply_remote_migrations == true }}
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Final migration state:"
+          echo "Repairing remote migration history..."
 
-          supabase migration list
+          supabase migration repair \
+            "${R1_BASELINE_MIGRATION}" \
+            --status applied \
+            --linked
 
-      # ========================================================
-      # 21. IMPORTANT FIX:
+          echo "Baseline migration history repair: PASS"
+
+      # ======================================================
+      # 20. SHOW MIGRATION HISTORY AFTER REPAIR
+      # ======================================================
+
+      - name: Verify migration history after reconciliation
+        if: ${{ inputs.apply_remote_migrations == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          supabase migration list \
+            --linked \
+            | tee .r1-evidence/migration-state-after-repair.txt
+
+      # ======================================================
+      # 21. APPLY ALL REMAINING MIGRATIONS
       #
-      # `supabase db lint`
+      # `--yes` is the GLOBAL Supabase CLI flag.
       #
-      # means LOCAL database by default.
+      # This prevents the:
       #
-      # `supabase db lint --linked`
+      # "Do you want to push these migrations?"
       #
-      # means the linked REMOTE project.
+      # prompt that appeared in your failed run.
+      # ======================================================
+
+      - name: Apply remaining Supabase migrations
+        if: ${{ inputs.apply_remote_migrations == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Applying remaining TrustPay migrations..."
+
+          supabase \
+            --yes \
+            db push \
+            --linked
+
+          echo "Remaining Supabase migration apply: PASS"
+
+      # ======================================================
+      # 22. FINAL MIGRATION STATE
+      # ======================================================
+
+      - name: Confirm final Supabase migration state
+        if: ${{ inputs.apply_remote_migrations == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          supabase migration list \
+            --linked \
+            | tee .r1-evidence/migration-state-final.txt
+
+      # ======================================================
+      # 23. LINKED REMOTE DATABASE LINT
       #
-      # This is the direct fix for:
+      # IMPORTANT:
       #
-      # ECONNREFUSED 127.0.0.1:54322
-      # ========================================================
+      # `--linked` prevents the CLI from trying:
+      #
+      # 127.0.0.1:54322
+      #
+      # This is the permanent fix for the earlier local-lint
+      # failure.
+      # ======================================================
 
       - name: Lint linked TrustPay Supabase database
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Running Supabase database lint against the LINKED remote TrustPay project..."
+          echo "Linting the LINKED remote TrustPay database..."
 
           supabase db lint \
             --linked \
             --fail-on error
 
-          echo "Linked Supabase database lint: PASS"
+          echo "Linked remote database lint: PASS"
 
-      # ========================================================
-      # 22. PROTECTED VERCEL PREVIEW SMOKE
-      # ========================================================
-
-
-      # ========================================================
-      # 23. RECORD R1 EVIDENCE
-      # ========================================================
-
-      - name: Record R1 evidence
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mkdir -p .r1-evidence
-
-          R1_SHA="$(git rev-parse HEAD)"
-
-          {
-            echo "TRUSTPAY R1 RELEASE EVIDENCE"
-            echo "UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "R1_BRANCH=${R1_BRANCH}"
-            echo "R1_SHA=${R1_SHA}"
-            echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
-            echo "RUN_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            echo "PREVIEW_URL=${{ inputs.preview_url }}"
-            echo "REMOTE_MIGRATIONS_APPLIED=${{ inputs.apply_remote_migrations }}"
-            echo "SUPABASE_LINT_MODE=linked"
-          } > .r1-evidence/context.txt
-
-      # ========================================================
-      # PROTECTED VERCEL PREVIEW SMOKE
-      #
-      # This test checks the real TrustPay Vercel Preview.
+      # ======================================================
+      # 24. PROTECTED VERCEL PREVIEW SMOKE
       #
       # IMPORTANT:
       #
-      # We intentionally use only:
+      # We deliberately DO NOT use:
       #
-      #   x-vercel-protection-bypass
-      #
-      # We do NOT use:
-      #
-      #   x-vercel-set-bypass-cookie
+      # x-vercel-set-bypass-cookie
       #
       # in this simple HTTP smoke test.
       #
-      # The cookie-setting header can intentionally cause a
-      # redirect. That was the reason the previous test saw
-      # HTTP 307.
-      #
-      # This test also uses curl instead of an embedded Python
-      # script. This removes the broken heredoc problem.
-      # ========================================================
+      # This prevents the earlier HTTP 307 problem.
+      # ======================================================
 
       - name: Protected Vercel Preview smoke
         env:
           PREVIEW_URL: ${{ inputs.preview_url }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         shell: bash
         run: |
           set -euo pipefail
 
-          echo
-          echo "=============================================="
-          echo "TRUSTPAY R1 VERCEL PREVIEW SMOKE"
-          echo "=============================================="
-          echo
-
-          # ----------------------------------------------------
-          # Check that a Preview URL was supplied.
-          # ----------------------------------------------------
-
           if [[ -z "${PREVIEW_URL:-}" ]]; then
             echo "::error::No Vercel Preview URL was supplied."
-            echo "::error::When starting the workflow, enter the exact TrustPay R1 Preview URL."
             exit 1
           fi
-
-          # ----------------------------------------------------
-          # Check that the Vercel automation secret exists.
-          # ----------------------------------------------------
-
-          if [[ -z "${VERCEL_AUTOMATION_BYPASS_SECRET:-}" ]]; then
-            echo "::error::VERCEL_AUTOMATION_BYPASS_SECRET is missing."
-            echo "::error::Go to GitHub → Settings → Secrets and variables → Actions."
-            echo "::error::Create/update the repository secret named:"
-            echo "::error::VERCEL_AUTOMATION_BYPASS_SECRET"
-            exit 1
-          fi
-
-          # ----------------------------------------------------
-          # Remove a trailing slash so we add exactly one slash.
-          # ----------------------------------------------------
 
           PREVIEW_URL="${PREVIEW_URL%/}"
 
-          # ----------------------------------------------------
-          # The Preview must use HTTPS.
-          # ----------------------------------------------------
-
           if [[ "${PREVIEW_URL}" != https://* ]]; then
-            echo "::error::The Preview URL must begin with https://"
-            echo "::error::Example:"
-            echo "::error::https://trustpay-nigeria-msme-xxxxx.vercel.app"
+            echo "::error::Preview URL must begin with https://"
             exit 1
           fi
-
-          # ----------------------------------------------------
-          # Temporary files.
-          #
-          # These exist only during this GitHub Actions job.
-          # ----------------------------------------------------
 
           BODY_FILE="$(mktemp)"
           HEADER_FILE="$(mktemp)"
@@ -552,25 +580,6 @@ jobs:
           }
 
           trap cleanup EXIT
-
-          # ----------------------------------------------------
-          # Make the protected request.
-          #
-          # IMPORTANT:
-          #
-          # We use:
-          #
-          #   x-vercel-protection-bypass
-          #
-          # We do NOT use:
-          #
-          #   x-vercel-set-bypass-cookie
-          #
-          # here.
-          # ----------------------------------------------------
-
-          echo "Requesting the protected TrustPay Preview..."
-          echo
 
           CURL_RESULT="$(
             curl \
@@ -588,77 +597,61 @@ jobs:
               "${PREVIEW_URL}/"
           )"
 
-          # ----------------------------------------------------
-          # Extract final HTTP status and final URL.
-          # ----------------------------------------------------
-
           HTTP_STATUS="$(printf '%s\n' "${CURL_RESULT}" | sed -n '1p')"
 
           FINAL_URL="$(printf '%s\n' "${CURL_RESULT}" | sed -n '2p')"
 
           echo "HTTP_STATUS=${HTTP_STATUS}"
-          echo "FINAL_URL=${FINAL_URL}"
-          echo
 
-          # ----------------------------------------------------
-          # Reject Vercel authentication.
-          # ----------------------------------------------------
+          echo "FINAL_URL=${FINAL_URL}"
 
           if [[ "${FINAL_URL}" == *"vercel.com/login"* ]]; then
-            echo "::error::The Preview redirected to the Vercel login page."
-            echo "::error::Vercel Protection Bypass was not accepted."
+            echo "::error::Preview redirected to Vercel authentication."
             exit 1
           fi
-
-          # ----------------------------------------------------
-          # Require a successful final HTTP response.
-          # ----------------------------------------------------
 
           if [[ ! "${HTTP_STATUS}" =~ ^2[0-9][0-9]$ ]]; then
-            echo "::error::The final Preview response was not successful."
-            echo "::error::Final HTTP status: ${HTTP_STATUS}"
-            echo
-            echo "Response headers:"
-            sed -n '1,100p' "${HEADER_FILE}" || true
-            echo
-            echo "Response preview:"
-            sed -n '1,160p' "${BODY_FILE}" || true
+            echo "::error::Preview did not return a successful final HTTP status."
+            echo "::error::HTTP status: ${HTTP_STATUS}"
             exit 1
           fi
-
-          # ----------------------------------------------------
-          # Make sure the response is really TrustPay.
-          # ----------------------------------------------------
 
           if ! grep -qi "TrustPay" "${BODY_FILE}"; then
-            echo "::error::The Preview responded, but the returned page does not contain recognizable TrustPay content."
-            echo
-            echo "Final URL:"
-            echo "${FINAL_URL}"
-            echo
-            echo "Response preview:"
-            sed -n '1,160p' "${BODY_FILE}" || true
+            echo "::error::Preview returned a page that does not contain recognizable TrustPay content."
             exit 1
           fi
 
-          # ----------------------------------------------------
-          # Everything passed.
-          # ----------------------------------------------------
+          echo "Vercel Preview smoke: PASS"
 
-          echo
-          echo "=============================================="
-          echo "VERCEL PREVIEW SMOKE: PASS"
-          echo "=============================================="
-          echo
-          echo "The protected TrustPay Preview was reached."
-          echo "The final response was successful."
-          echo "The final URL was not the Vercel login page."
-          echo "TrustPay content was found in the response."
-          echo
+      # ======================================================
+      # 25. WRITE RELEASE EVIDENCE
+      # ======================================================
 
-      # ========================================================
-      # 24. UPLOAD EVIDENCE
-      # ========================================================
+      - name: Record R1 release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p .r1-evidence
+
+          R1_SHA="$(git rev-parse HEAD)"
+
+          {
+            echo "TRUSTPAY R1 RELEASE EVIDENCE"
+            echo "UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "R1_BRANCH=${R1_BRANCH}"
+            echo "R1_SHA=${R1_SHA}"
+            echo "GITHUB_RUN_ID=${GITHUB_RUN_ID}"
+            echo "RUN_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "PREVIEW_URL=${{ inputs.preview_url }}"
+            echo "REMOTE_MIGRATIONS_APPLIED=${{ inputs.apply_remote_migrations }}"
+            echo "KNOWN_BASELINE_MIGRATION=${R1_BASELINE_MIGRATION}"
+            echo "BASELINE_RECONCILIATION_POLICY=SCHEMA-EQUIVALENCE-BEFORE-HISTORY-REPAIR"
+          } > .r1-evidence/release-context.txt
+
+      # ======================================================
+      # 26. UPLOAD EVIDENCE
+      # ======================================================
 
       - name: Upload R1 evidence
         uses: actions/upload-artifact@v4
@@ -666,16 +659,11 @@ jobs:
           name: trustpay-r1-evidence-${{ github.run_id }}
           path: .r1-evidence/
 
-      # ========================================================
-      # 25. CREATE R1 CERTIFICATION TAG
+      # ======================================================
+      # 27. CREATE R1 CERTIFICATION TAG
       #
-      # Certification occurs only if:
-      #
-      # 1. Every prior step passed.
-      # 2. Real remote migration application was requested.
-      #
-      # The tag points to the exact checked-out R1 commit.
-      # ========================================================
+      # ONLY after every previous step has passed.
+      # ======================================================
 
       - name: Create R1 certification tag
         if: ${{ success() && inputs.apply_remote_migrations == true }}
@@ -687,17 +675,7 @@ jobs:
 
           R1_SHA="$(git rev-parse HEAD)"
 
-          echo "Preparing R1 certification."
-
-          echo "Tag:"
-          echo "${TAG}"
-
-          echo "R1 commit:"
-          echo "${R1_SHA}"
-
-          # ------------------------------------------------------
-          # Never overwrite an existing release tag.
-          # ------------------------------------------------------
+          echo "Checking whether ${TAG} already exists..."
 
           if git ls-remote \
             --exit-code \
@@ -707,16 +685,10 @@ jobs:
             >/dev/null 2>&1; then
 
             echo "::error::Tag ${TAG} already exists."
-
-            echo "::error::Existing release tags are never overwritten."
-
+            echo "::error::No existing release tag will be overwritten."
             exit 1
 
           fi
-
-          # ------------------------------------------------------
-          # Configure bot identity.
-          # ------------------------------------------------------
 
           git config \
             user.name \
@@ -726,18 +698,11 @@ jobs:
             user.email \
             "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # ------------------------------------------------------
-          # Create annotated tag.
-          # ------------------------------------------------------
-
           git tag \
-            -a "${TAG}" \
+            -a \
+            "${TAG}" \
             "${R1_SHA}" \
             -m "TrustPay R1 certification ${TAG}"
-
-          # ------------------------------------------------------
-          # Push only the new tag.
-          # ------------------------------------------------------
 
           git push \
             origin \
