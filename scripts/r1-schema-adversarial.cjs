@@ -3,6 +3,7 @@ const fs=require('node:fs');
 const assert=require('node:assert/strict');
 
 const sql=fs.readFileSync('supabase/schema.sql','utf8');
+
 const requiredTables=[
   'tenants','memberships','people','trading_identities','payment_accounts','orders','order_versions',
   'payment_intents','payment_events','evidence','audit_events','disputes','communication_events',
@@ -11,8 +12,8 @@ const requiredTables=[
 ];
 
 for(const table of requiredTables){
-  assert.match(sql,new RegExp('create\\s+table\\s+public\\.'+table+'\\s*\\(','i'),`missing table: ${table}`);
-  assert.match(sql,new RegExp('alter\\s+table\\s+public\\.'+table+'\\s+enable\\s+row\\s+level\\s+security','i'),`RLS not enabled: ${table}`);
+  assert.match(sql,new RegExp('create\\s+table\\s+public\\.'+table+'\\s*\\(','i'),\`missing table: \${table}\`);
+  assert.match(sql,new RegExp('alter\\s+table\\s+public\\.'+table+'\\s+enable\\s+row\\s+level\\s+security','i'),\`RLS not enabled: \${table}\`);
 }
 
 const policyExpectations={
@@ -38,10 +39,12 @@ const policyExpectations={
   risk_events:'public\\.is_tenant_member\\(tenant_id\\)',
   idempotency_keys:'public\\.is_tenant_member\\(tenant_id\\)',
 };
-assert.match(sql,/create\\s+policy\s+"tenant members can read tenant"\s+on\s+public\.tenants\s+for\s+select\s+using\s+\(public\.is_tenant_member\(id\)\)/i);
-assert.match(sql,/create\\s+policy\s+"memberships are self visible"\s+on\s+public\.memberships\s+for\s+select\s+using\s+\(user_id = auth\.uid\(\) or public\.is_tenant_member\(tenant_id\)\)/i);
+
+assert.match(sql,/create\s+policy\s+"tenant members can read tenant"\s+on\s+public\.tenants\s+for\s+select\s+using\s+\(public\.is_tenant_member\(id\)\)/i);
+assert.match(sql,/create\s+policy\s+"memberships are self visible"\s+on\s+public\.memberships\s+for\s+select\s+using\s+\(user_id = auth\.uid\(\) or public\.is_tenant_member\(tenant_id\)\)/i);
+
 for(const [table,needle] of Object.entries(policyExpectations)){
-  assert.match(sql,new RegExp('create\\s+policy[^\\n]*on\\s+public\\.'+table+'[^\\n]*'+needle,'i'),`tenant isolation policy missing: ${table}`);
+  assert.match(sql,new RegExp('create\\s+policy[^\\n]*on\\s+public\\.'+table+'[^\\n]*'+needle,'i'),\`tenant isolation policy missing: \${table}\`);
 }
 
 assert.match(sql,/create\s+or\s+replace\s+function\s+public\.is_tenant_member\(target_tenant\s+uuid\)[\s\S]*?security\s+definer/i);
@@ -49,8 +52,12 @@ assert.match(sql,/set\s+search_path\s*=\s*public/i);
 
 assert.match(sql,/create\s+or\s+replace\s+function\s+public\.get_public_trust_card\(p_token\s+text\)/i);
 assert.match(sql,/grant\s+execute\s+on\s+function\s+public\.get_public_trust_card\(text\)\s+to\s+anon,\s*authenticated/i);
-assert.doesNotMatch(sql,/get_public_trust_card[\s\S]*?raw_payload/i,'public Trust Card must not expose raw provider payloads');
-assert.doesNotMatch(sql,/get_public_trust_card[\s\S]*?storage_path/i,'public Trust Card must not expose private storage paths');
+
+const rpc=sql.slice(
+  sql.indexOf('create or replace function public.get_public_trust_card'),
+  sql.indexOf('grant execute on function public.get_public_trust_card')
+);
+assert.doesNotMatch(rpc,/raw_payload|storage_path/i,'public Trust Card must not expose raw provider payloads or private storage paths');
 
 assert.match(sql,/create\s+table\s+public\.payment_events[\s\S]*?unique\(provider,provider_event_id\)/i);
 assert.match(sql,/create\s+table\s+public\.idempotency_keys[\s\S]*?primary\s+key\(tenant_id,key\)/i);
@@ -65,4 +72,4 @@ assert.match(sql,/create\s+policy\s+"private docs tenant scoped"\s+on\s+storage\
 assert.match(sql,/create\s+policy\s+"private docs tenant upload"\s+on\s+storage\.objects\s+for\s+insert\s+to\s+authenticated/i);
 
 console.log('TrustPay R1 schema/RLS adversarial validation: PASS');
-console.log(`Validated ${requiredTables.length} tables, tenant isolation policy coverage, public RPC boundaries, idempotency/uniqueness controls, audit append policy, and private storage.`);
+console.log(\`Validated \${requiredTables.length} tables, specialized tenant policies, public RPC boundaries, idempotency/uniqueness controls, audit append policy, and private storage.\`);
