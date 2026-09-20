@@ -64,6 +64,12 @@ jobs:
       - name: Core smoke test
         run: npm run test:core
 
+      - name: V2 deterministic smoke
+        run: npm run test:v2
+
+      - name: R1 schema / RLS adversarial validation
+        run: npm run test:r1-schema
+
       - name: Production build
         run: npm run build
 
