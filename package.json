@@ -1,6 +1,6 @@
 {
   "name": "trustpay-nigeria-msme",
-  "version": "0.1.0",
+  "version": "2.0.0-r1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -15,7 +15,9 @@
     "verify:repo": "node scripts/verify-repo.mjs",
     "typecheck:core": "tsc -p tsconfig.core.json",
     "typecheck:static": "tsc -p tsconfig.static.json",
-    "test:core": "rm -rf .tmp/core && tsc -p tsconfig.core.emit.json && node scripts/core-smoke.cjs"
+    "test:core": "rm -rf .tmp/core && tsc -p tsconfig.core.emit.json && node scripts/core-smoke.cjs",
+    "test:v2": "node scripts/v2-smoke.cjs",
+    "check:v2": "npm run verify:repo && npm run typecheck && npm run test:v2"
   },
   "engines": {
     "node": ">=22.16.0"
