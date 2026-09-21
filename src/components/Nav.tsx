@@ -8,6 +8,7 @@ const links = [
   { href: '/', label: 'Overview' },
   { href: '/demo', label: 'Demo', demo: true },
   { href: '/dashboard', label: 'Control' },
+  { href: '/transactions', label: 'Transactions' },
   { href: '/trust/trust-demo-1001', label: 'Trust' },
   { href: '/docs/doc-demo-1001', label: 'Documents' },
   { href: '/obligations', label: 'Watch' },
