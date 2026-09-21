@@ -1,0 +1,86 @@
+name: TrustPay R2 CI
+
+on:
+  push:
+    branches:
+      - v2.0.0-execution-r2
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trustpay-r2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  r2-quality:
+    name: TrustPay R2 Quality / Build / Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Upgrade npm
+        run: |
+          npm install --global npm@11.19.1
+          node --version
+          npm --version
+
+      - name: Install from lockfile
+        run: npm ci
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+
+      - name: Repository integrity
+        run: npm run verify:repo
+
+      - name: Core typecheck
+        run: npm run typecheck:core
+
+      - name: Static typecheck
+        run: npm run typecheck:static
+
+      - name: Full typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit and integration tests
+        run: npm run test
+
+      - name: Core smoke test
+        run: npm run test:core
+
+      - name: Existing V2 deterministic smoke
+        run: npm run test:v2
+
+      - name: R2 domain smoke
+        run: npm run test:r2
+
+      - name: R1 schema adversarial validation
+        run: npm run test:r1-schema
+
+      - name: R2 schema / RLS adversarial validation
+        run: npm run test:r2-schema
+
+      - name: Production build
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser E2E tests
+        run: npm run e2e
