@@ -19,3 +19,15 @@
 - Converted demo verification from state-changing GET to POST and tightened live/demo separation.
 - Added baseline in-process rate limiting, same-origin checking for authenticated payment writes and declared-MIME/content-signature validation for uploads.
 - CI now includes dependency vulnerability scanning and Chromium E2E smoke execution on a connected runner.
+
+## 2.0.0-r2 — 2026-09-21
+
+- Corrected the R2 Supabase policy definitions so each INSERT policy has one consolidated `WITH CHECK` clause; frozen R1 migration remains unchanged.
+
+- Added generalized commercial transactions while retaining V1 orders as first-class records.
+- Added agreements, transaction parties, versioned immutable transaction terms and transaction line items.
+- Added deterministic V1 order → commercial transaction compatibility backfill with audit records.
+- Generalized existing obligations with explicit MONEY / NON_MONEY semantics and optional transaction linkage.
+- Added tenant-scoped R2 RLS policies with no R2 delete policies for commercial-control history tables.
+- Added R2 schema/domain adversarial checks and a browser-visible commercial transaction surface.
+- Added a dedicated R2 CI workflow without changing the frozen R1 workflow or initial migration.
