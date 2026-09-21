@@ -1,6 +1,6 @@
 {
   "name": "trustpay-nigeria-msme",
-  "version": "2.0.0-r1",
+  "version": "2.0.0-r2",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -19,7 +19,10 @@
     "test:v2": "node scripts/v2-smoke.cjs",
     "check:v2": "npm run verify:repo && npm run typecheck && npm run test:v2 && npm run test:r1-schema",
     "test:r1-schema": "node scripts/r1-schema-adversarial.cjs",
-    "test:r1-preview": "node scripts/r1-preview-smoke.mjs"
+    "test:r1-preview": "node scripts/r1-preview-smoke.mjs",
+    "test:r2": "node scripts/r2-smoke.cjs",
+    "test:r2-schema": "node scripts/r2-schema-adversarial.cjs",
+    "check:r2": "npm run verify:repo && npm run typecheck && npm run test && npm run test:r2 && npm run test:r1-schema && npm run test:r2-schema"
   },
   "engines": {
     "node": ">=22.16.0"
