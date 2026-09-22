@@ -28,12 +28,16 @@ type BrowserSupabaseClient = ReturnType<typeof createBrowserClient>
 
 let browserSupabase: BrowserSupabaseClient | null = null
 
-function getSupabase() {
+function getSupabase(): BrowserSupabaseClient | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+
+  if (!url || !key) {
+    return null
+  }
+
   if (!browserSupabase) {
-    browserSupabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    )
+    browserSupabase = createBrowserClient(url, key)
   }
 
   return browserSupabase
@@ -49,15 +53,13 @@ export function Nav() {
     let mounted = true
     const supabase = getSupabase()
 
-    async function loadAuthenticationState() {
-      const { data } = await supabase.auth.getUser()
-
-      if (mounted) {
-        setIsAuthenticated(Boolean(data.user))
+    // Public/demo test environments may intentionally have no Supabase
+    // configuration. The navigation must remain usable in that case.
+    if (!supabase) {
+      return () => {
+        mounted = false
       }
     }
-
-    void loadAuthenticationState()
 
     const {
       data: { subscription },
@@ -76,9 +78,14 @@ export function Nav() {
   }, [])
 
   async function handleSignOut() {
-    setSigningOut(true)
-
     const supabase = getSupabase()
+
+    if (!supabase) {
+      setSigningOut(false)
+      return
+    }
+
+    setSigningOut(true)
 
     const { error } = await supabase.auth.signOut({
       scope: 'local',
