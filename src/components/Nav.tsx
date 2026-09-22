@@ -1,9 +1,10 @@
 'use client'
 
 import { createBrowserClient } from '@supabase/ssr'
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BrandMark } from './BrandMark'
 
 const links = [
@@ -23,41 +24,50 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
+type BrowserSupabaseClient = ReturnType<typeof createBrowserClient>
+
+let browserSupabase: BrowserSupabaseClient | null = null
+
+function getSupabase() {
+  if (!browserSupabase) {
+    browserSupabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    )
+  }
+
+  return browserSupabase
+}
+
 export function Nav() {
   const pathname = usePathname()
   const router = useRouter()
-  const supabaseRef = useRef<ReturnType<typeof createBrowserClient> | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
 
-  function getSupabase() {
-    if (!supabaseRef.current) {
-      supabaseRef.current = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-      )
-    }
-
-    return supabaseRef.current
-  }
-
   useEffect(() => {
-    const supabase = getSupabase()
     let mounted = true
+    const supabase = getSupabase()
 
-    supabase.auth.getUser().then(({ data }) => {
+    async function loadAuthenticationState() {
+      const { data } = await supabase.auth.getUser()
+
       if (mounted) {
         setIsAuthenticated(Boolean(data.user))
       }
-    })
+    }
+
+    void loadAuthenticationState()
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (mounted) {
-        setIsAuthenticated(Boolean(session))
-      }
-    })
+    } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        if (mounted) {
+          setIsAuthenticated(Boolean(session))
+        }
+      },
+    )
 
     return () => {
       mounted = false
