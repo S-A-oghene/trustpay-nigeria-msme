@@ -1,7 +1,9 @@
 'use client'
 
+import { createBrowserClient } from '@supabase/ssr'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { BrandMark } from './BrandMark'
 
 const links = [
@@ -21,8 +23,56 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+)
+
 export function Nav() {
   const pathname = usePathname()
+  const router = useRouter()
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (mounted) {
+        setIsAuthenticated(Boolean(data.user))
+      }
+    })
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (mounted) {
+        setIsAuthenticated(Boolean(session))
+      }
+    })
+
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  async function handleSignOut() {
+    setSigningOut(true)
+
+    const { error } = await supabase.auth.signOut({
+      scope: 'local',
+    })
+
+    if (error) {
+      setSigningOut(false)
+      return
+    }
+
+    setIsAuthenticated(false)
+    router.replace('/login')
+    router.refresh()
+  }
 
   return (
     <header className="nav-wrap">
@@ -30,19 +80,39 @@ export function Nav() {
         <Link className="brand" href="/" aria-label="TrustPay home">
           <BrandMark />
         </Link>
+
         <div className="navlinks">
           {links.map(link => (
             <Link
               key={link.href}
               href={link.href}
-              className={`${link.demo ? 'nav-demo' : ''} ${isActive(pathname, link.href) ? 'active' : ''}`}
-              aria-current={isActive(pathname, link.href) ? 'page' : undefined}
+              className={`${link.demo ? 'nav-demo' : ''} ${
+                isActive(pathname, link.href) ? 'active' : ''
+              }`}
+              aria-current={
+                isActive(pathname, link.href) ? 'page' : undefined
+              }
             >
               {link.label}
             </Link>
           ))}
         </div>
-        <Link className="nav-cta" href="/login">Sign in</Link>
+
+        {isAuthenticated ? (
+          <button
+            className="nav-cta"
+            type="button"
+            onClick={handleSignOut}
+            disabled={signingOut}
+            aria-label="Sign out"
+          >
+            {signingOut ? 'Signing out…' : 'Sign out'}
+          </button>
+        ) : (
+          <Link className="nav-cta" href="/login">
+            Sign in
+          </Link>
+        )}
       </nav>
     </header>
   )
