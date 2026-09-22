@@ -3,7 +3,7 @@
 import { createBrowserClient } from '@supabase/ssr'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BrandMark } from './BrandMark'
 
 const links = [
@@ -23,18 +23,26 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-)
-
 export function Nav() {
   const pathname = usePathname()
   const router = useRouter()
+  const supabaseRef = useRef<ReturnType<typeof createBrowserClient> | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
 
+  function getSupabase() {
+    if (!supabaseRef.current) {
+      supabaseRef.current = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+      )
+    }
+
+    return supabaseRef.current
+  }
+
   useEffect(() => {
+    const supabase = getSupabase()
     let mounted = true
 
     supabase.auth.getUser().then(({ data }) => {
@@ -59,6 +67,8 @@ export function Nav() {
 
   async function handleSignOut() {
     setSigningOut(true)
+
+    const supabase = getSupabase()
 
     const { error } = await supabase.auth.signOut({
       scope: 'local',
