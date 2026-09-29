@@ -1,0 +1,66 @@
+name: TrustPay Release Audit
+
+on:
+  push:
+    branches:
+      - v2.0.0-execution-r2
+      - v2.0.0-execution-r3
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Optional deployed Preview URL for Playwright, when the repo config uses PLAYWRIGHT_BASE_URL'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trustpay-release-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: true
+      AUDIT_EXPECTED_BRANCH: ${{ github.ref_name }}
+      PLAYWRIGHT_BASE_URL: ${{ inputs.base_url }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      E2E_USER_A_EMAIL: ${{ secrets.E2E_USER_A_EMAIL }}
+      E2E_USER_A_PASSWORD: ${{ secrets.E2E_USER_A_PASSWORD }}
+      E2E_USER_B_EMAIL: ${{ secrets.E2E_USER_B_EMAIL }}
+      E2E_USER_B_PASSWORD: ${{ secrets.E2E_USER_B_PASSWORD }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Verify PostgreSQL client
+        run: psql --version
+
+      - name: Run TrustPay automated audit
+        shell: pwsh
+        run: ./TRUSTPAY-R2-R3-AUDIT.ps1 -RequireCloudVerification
+
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trustpay-release-audit-${{ github.sha }}
+          path: |
+            audit-output/**
+            playwright-report/**
+            test-results/**
+          if-no-files-found: warn
+          retention-days: 14
