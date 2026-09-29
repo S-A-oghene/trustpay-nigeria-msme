@@ -31,3 +31,11 @@
 - Added tenant-scoped R2 RLS policies with no R2 delete policies for commercial-control history tables.
 - Added R2 schema/domain adversarial checks and a browser-visible commercial transaction surface.
 - Added a dedicated R2 CI workflow without changing the frozen R1 workflow or initial migration.
+
+## R2 — Controlled Scope Clarification
+
+* Added an authenticated navigation identity display showing the current signed-in user and a Guest state after sign-out.
+* Preserved browser-only Supabase client initialization so public builds and E2E smoke tests remain independent of Supabase runtime configuration.
+* Recorded Change Control `CC-R2-001` establishing R2 as the Gate B commercial-transaction foundation.
+* Explicitly deferred expected events, expected payments, and domain-event envelope/replay discipline from R2 without removing them from the master roadmap.
+* Recorded that the current database contains zero V1 `orders`, so live V1→R2 mapping was not exercised against a non-empty V1 dataset.
