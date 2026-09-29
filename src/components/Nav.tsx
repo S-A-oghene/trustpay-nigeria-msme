@@ -46,15 +46,15 @@ function getSupabase(): BrowserSupabaseClient | null {
 export function Nav() {
   const pathname = usePathname()
   const router = useRouter()
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [signedInAs, setSignedInAs] = useState<string | null>(null)
   const [signingOut, setSigningOut] = useState(false)
 
   useEffect(() => {
     let mounted = true
     const supabase = getSupabase()
 
-    // Public/demo test environments may intentionally have no Supabase
-    // configuration. The navigation must remain usable in that case.
+    // Public/demo environments may intentionally have no Supabase
+    // configuration. The navigation remains available as Guest.
     if (!supabase) {
       return () => {
         mounted = false
@@ -65,9 +65,15 @@ export function Nav() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
       (_event: AuthChangeEvent, session: Session | null) => {
-        if (mounted) {
-          setIsAuthenticated(Boolean(session))
+        if (!mounted) {
+          return
         }
+
+        setSignedInAs(
+          session?.user?.email ??
+            session?.user?.id ??
+            null,
+        )
       },
     )
 
@@ -81,7 +87,6 @@ export function Nav() {
     const supabase = getSupabase()
 
     if (!supabase) {
-      setSigningOut(false)
       return
     }
 
@@ -96,7 +101,7 @@ export function Nav() {
       return
     }
 
-    setIsAuthenticated(false)
+    setSignedInAs(null)
     router.replace('/login')
     router.refresh()
   }
@@ -125,19 +130,22 @@ export function Nav() {
           ))}
         </div>
 
-        {isAuthenticated ? (
+        {signedInAs ? (
           <button
             className="nav-cta"
             type="button"
             onClick={handleSignOut}
             disabled={signingOut}
-            aria-label="Sign out"
+            aria-label={`Sign out ${signedInAs}`}
+            title={signedInAs}
           >
-            {signingOut ? 'Signing out…' : 'Sign out'}
+            {signingOut
+              ? 'Signing out…'
+              : `Sign out · ${signedInAs}`}
           </button>
         ) : (
           <Link className="nav-cta" href="/login">
-            Sign in
+            Guest · Sign in
           </Link>
         )}
       </nav>
