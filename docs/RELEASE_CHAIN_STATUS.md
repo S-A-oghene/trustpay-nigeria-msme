@@ -34,3 +34,43 @@ Last recorded from the supplied R2 branch snapshot: 2026-09-21
 ## Not yet claimed
 
 No live Supabase migration, cloud CI completion, Vercel deployment, browser smoke against the connected deployment, provider-connected outcome, settlement custody or production certification is claimed from the supplied ZIP alone.
+
+## R2 GATE B SCOPE DECISION — CC-R2-001
+
+R2 is approved as a controlled implementation of the Gate B commercial-transaction foundation:
+
+* commercial transactions;
+* versioned agreements / terms;
+* generalized MONEY / NON_MONEY obligations.
+
+The master Gate B definition additionally contains:
+
+* expected events;
+* expected payments;
+* domain-event envelope / replay discipline.
+
+Those three capabilities are explicitly deferred from R2 and remain future controlled implementation requirements.
+
+Accordingly:
+
+**R2 is not recorded as full Gate B completion.**
+
+The release-chain state is:
+
+```text
+R2 commercial transaction foundation       VALIDATED / IN SCOPE
+R2 tenant-scoped RLS                       VALIDATED
+R2 V1 compatibility check                  VALIDATED; no V1 orders existed
+R2 live tenant authorization               VALIDATED
+R2 cross-tenant isolation                  VALIDATED
+Gate B expected events                     DEFERRED
+Gate B expected payments                   DEFERRED
+Gate B event envelope / replay             DEFERRED
+Full Gate B completion                     NOT CLAIMED
+```
+
+This is an explicit change-control resolution preserving traceability to the v2.1.0 master manual.
+
+Do not retarget `v2.0.0-r1`.
+
+Do not create `v2.0.0-r2` until the actual R2 release evidence and the approved scope decision have been recorded against the exact validated commit.
