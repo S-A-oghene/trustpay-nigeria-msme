@@ -157,8 +157,8 @@ if ($env:GITHUB_STEP_SUMMARY) {
     $md = @()
     $md += '# TrustPay automated audit'
     $md += ''
-    $md += "- Commit: `$($env:GITHUB_SHA)`"
-    $md += "- Ref: `$($env:GITHUB_REF_NAME)`"
+    $md += ('- Commit: `{0}`' -f $env:GITHUB_SHA)
+    $md += ('- Ref: `{0}`' -f $env:GITHUB_REF_NAME)
     $md += "- Duration: $([math]::Round($totalSeconds,1)) seconds"
     $md += ''
     $md += '| Check | Result | Exit | Seconds |'
